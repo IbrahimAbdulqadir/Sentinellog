@@ -1,0 +1,62 @@
+{% extends "base.html" %}
+{% block title %}Alert {{ alert.id }} — SentinelLog{% endblock %}
+
+{% block content %}
+<div class="page-head">
+  <a href="/alerts" style="color:var(--text-muted);font-size:13px;text-decoration:none;display:inline-flex;align-items:center;gap:5px;margin-bottom:12px">
+    <i class="ti ti-arrow-left" aria-hidden="true"></i>Back to alerts
+  </a>
+  <div style="display:flex;align-items:center;gap:10px;margin-bottom:6px">
+    <span class="pill {{ 'pill-red' if alert.severity == 'critical' else 'pill-amber' }}">{{ alert.severity }}</span>
+    <span class="pill {{ 'pill-red' if alert.rule == 'brute_force' else 'pill-amber' }}">{{ alert.rule.replace('_',' ') }}</span>
+  </div>
+  <div class="page-title">{{ alert.title }}</div>
+  <div class="page-sub">{{ alert.description }}</div>
+</div>
+
+<div style="display:grid;grid-template-columns:1fr 300px;gap:16px">
+  <div>
+    <div class="card">
+      <div class="card-head"><span class="card-title">Raw log evidence</span></div>
+      <div class="terminal">
+        {% for line in alert.evidence %}
+        <div class="t-line"><span class="{{ 't-fail' if 'Failed' in line else ('t-ok' if 'Accepted' in line else 't-dim') }}">{{ line }}</span></div>
+        {% endfor %}
+      </div>
+    </div>
+  </div>
+
+  <div>
+    <div class="card">
+      <div class="card-head"><span class="card-title">Details</span></div>
+      <div style="display:flex;flex-direction:column;gap:14px">
+        {% if alert.source_ip %}
+        <div>
+          <div class="text-xs text-muted mb-4">Source IP</div>
+          <div style="font-family:var(--mono);font-size:13px;color:var(--text)">{{ alert.source_ip }}</div>
+        </div>
+        {% endif %}
+        {% if alert.username %}
+        <div>
+          <div class="text-xs text-muted mb-4">Target account</div>
+          <div style="font-family:var(--mono);font-size:13px;color:var(--accent)">{{ alert.username }}</div>
+        </div>
+        {% endif %}
+        <div>
+          <div class="text-xs text-muted mb-4">Event count</div>
+          <div style="font-size:24px;font-weight:600;color:var(--red)">{{ alert.event_count }}</div>
+        </div>
+        <div>
+          <div class="text-xs text-muted mb-4">Time window</div>
+          <div class="text-sm text-secondary">{{ alert.first_seen[:19] }}</div>
+          <div class="text-xs text-muted">to {{ alert.last_seen[:19] }}</div>
+        </div>
+        <div>
+          <div class="text-xs text-muted mb-4">Alert ID</div>
+          <div style="font-family:var(--mono);font-size:11px;color:var(--text-muted)">{{ alert.id }}</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

@@ -1,0 +1,186 @@
+{% extends "base.html" %}
+{% block title %}Dashboard — SentinelLog{% endblock %}
+
+{% block content %}
+<div class="page-head flex-between">
+  <div>
+    <div class="page-title">Dashboard</div>
+    <div class="page-sub" id="pageSubtitle">Loading monitor sessions...</div>
+  </div>
+</div>
+
+<div class="metrics">
+  <div class="metric m-blue">
+    <div class="metric-label"><i class="ti ti-activity" aria-hidden="true"></i>Active monitors</div>
+    <div class="metric-value" id="statMonitors">—</div>
+    <div class="metric-sub">log sources watched</div>
+  </div>
+  <div class="metric m-red">
+    <div class="metric-label"><i class="ti ti-alert-triangle" aria-hidden="true"></i>Critical alerts</div>
+    <div class="metric-value" id="statCritical">—</div>
+    <div class="metric-sub">brute force detected</div>
+  </div>
+  <div class="metric m-amber">
+    <div class="metric-label"><i class="ti ti-clock" aria-hidden="true"></i>Suspicious logins</div>
+    <div class="metric-value" id="statSuspicious">—</div>
+    <div class="metric-sub">unusual login time</div>
+  </div>
+  <div class="metric m-green">
+    <div class="metric-label"><i class="ti ti-chart-bar" aria-hidden="true"></i>Events processed</div>
+    <div class="metric-value" id="statEvents">—</div>
+    <div class="metric-sub">log lines analyzed</div>
+  </div>
+</div>
+
+<div class="row-2 mb-16">
+  <div class="card">
+    <div class="card-head">
+      <span class="card-title">Recent alerts</span>
+      <a href="/alerts" class="card-link">View all →</a>
+    </div>
+    <div id="recentAlerts">
+      <div class="empty-state">
+        <div class="empty-state-icon"><i class="ti ti-bell-off" aria-hidden="true"></i></div>
+        <div class="empty-state-title">No alerts yet</div>
+        <div class="empty-state-text">Start a monitor to begin detecting threats.</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-head">
+      <span class="card-title">Monitor sessions</span>
+      <a href="/monitor/new" class="card-link">+ New</a>
+    </div>
+    <div id="sessionsList">
+      <div class="empty-state">
+        <div class="empty-state-icon"><i class="ti ti-server-off" aria-hidden="true"></i></div>
+        <div class="empty-state-title">No active monitors</div>
+        <div class="empty-state-text"><a href="/monitor/new" style="color:var(--accent)">Start your first monitor</a></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="card">
+  <div class="card-head">
+    <span class="card-title">Live event feed</span>
+    <span class="pill pill-green" id="feedStatus">● waiting</span>
+  </div>
+  <div id="liveFeed">
+    <div style="text-align:center;padding:24px;color:var(--text-muted);font-size:13px">
+      Start a monitor session to see events here in real time.
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+let feedFirstEvent = true;
+let activeEventSource = null;
+
+async function loadDashboard() {
+  const [sessRes, alertRes] = await Promise.all([
+    fetch('/api/sessions').then(r=>r.json()).catch(()=>[]),
+    fetch('/api/alerts').then(r=>r.json()).catch(()=>[])
+  ]);
+
+  const critical = alertRes.filter(a => a.rule === 'brute_force').length;
+  const suspicious = alertRes.filter(a => a.rule === 'suspicious_time').length;
+  const totalEvents = sessRes.reduce((a,s) => a + (s.stats?.events_parsed || 0), 0);
+
+  document.getElementById('statMonitors').textContent = sessRes.length || '0';
+  document.getElementById('statCritical').textContent = critical || '0';
+  document.getElementById('statSuspicious').textContent = suspicious || '0';
+  document.getElementById('statEvents').textContent = totalEvents > 999 ? (totalEvents/1000).toFixed(1)+'k' : totalEvents || '0';
+  document.getElementById('pageSubtitle').textContent = sessRes.length > 0
+    ? `Monitoring ${sessRes.length} log source${sessRes.length > 1 ? 's' : ''} · last updated just now`
+    : 'No active monitors';
+
+  // Recent alerts
+  const ra = document.getElementById('recentAlerts');
+  if (alertRes.length > 0) {
+    ra.innerHTML = alertRes.slice(0,5).map(a => `
+      <div class="alert-item">
+        <div class="alert-icon ${a.rule === 'brute_force' ? 'crit' : 'warn'}">
+          <i class="ti ${a.rule === 'brute_force' ? 'ti-alert-triangle' : 'ti-clock'}" aria-hidden="true"></i>
+        </div>
+        <div style="flex:1">
+          <div class="alert-title">${a.title}</div>
+          <div class="alert-desc">${a.description.slice(0,80)}...</div>
+        </div>
+        <span class="alert-time">${timeAgo(a.timestamp)}</span>
+      </div>
+    `).join('');
+  }
+
+  // Sessions
+  const sl = document.getElementById('sessionsList');
+  if (sessRes.length > 0) {
+    const icons = ['ti-server','ti-server-2','ti-database','ti-cpu'];
+    sl.innerHTML = sessRes.map((s, i) => `
+      <div class="session-item" style="cursor:pointer" onclick="window.location='/monitor/${s.id}'">
+        <div class="s-icon"><i class="ti ${icons[i % icons.length]}" aria-hidden="true"></i></div>
+        <div style="flex:1">
+          <div class="s-name">${s.target_name}</div>
+          <div class="s-meta">${s.mode === 'tail' ? 'Live tail' : 'Replay'} · ${s.stats?.events_parsed || 0} events</div>
+        </div>
+        <span class="pill ${s.mode === 'tail' ? 'pill-green' : 'pill-blue'}">${s.mode === 'tail' ? 'live' : 'replay'}</span>
+      </div>
+    `).join('');
+
+    // Connect SSE for live feed from first active session
+    if (!activeEventSource && sessRes[0]) {
+      connectFeed(sessRes[0].id);
+    }
+  }
+}
+
+function connectFeed(sessionId) {
+  if (activeEventSource) return;
+  activeEventSource = new EventSource(`/api/monitor/${sessionId}/events`);
+  document.getElementById('feedStatus').textContent = '● streaming';
+
+  activeEventSource.addEventListener('log_event', e => {
+    const d = JSON.parse(e.data);
+    const feed = document.getElementById('liveFeed');
+    if (feedFirstEvent) { feed.innerHTML = ''; feedFirstEvent = false; }
+
+    const row = document.createElement('div');
+    row.className = 'feed-item';
+    const isOk = d.event_type === 'auth_success';
+    const cls = isOk ? 'g' : 'r';
+    const tag = isOk ? 'OK' : 'FAIL';
+    const user = d.username || '?';
+    const ip = d.source_ip || '';
+    row.innerHTML = `
+      <div class="fd ${cls}"></div>
+      <span class="feed-text">${tag} · ${user}${ip ? '@'+ip : ''} — ${d.raw_line.split(':').slice(-1)[0].trim().slice(0,60)}</span>
+      <span class="feed-time">${new Date(d.timestamp).toTimeString().slice(0,8)}</span>
+    `;
+    feed.insertBefore(row, feed.firstChild);
+    while (feed.children.length > 30) feed.removeChild(feed.lastChild);
+  });
+
+  activeEventSource.addEventListener('alert', e => {
+    const a = JSON.parse(e.data);
+    const feed = document.getElementById('liveFeed');
+    const row = document.createElement('div');
+    row.className = 'feed-item';
+    row.innerHTML = `
+      <div class="fd a"></div>
+      <span class="feed-text" style="color:var(--yellow);font-weight:500">ALERT · ${a.title}</span>
+      <span class="feed-time">${new Date(a.timestamp).toTimeString().slice(0,8)}</span>
+    `;
+    feed.insertBefore(row, feed.firstChild);
+    loadDashboard();
+  });
+
+  activeEventSource.addEventListener('heartbeat', () => {});
+}
+
+loadDashboard();
+setInterval(loadDashboard, 5000);
+</script>
+{% endblock %}

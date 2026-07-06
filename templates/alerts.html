@@ -1,0 +1,49 @@
+{% extends "base.html" %}
+{% block title %}Alerts — SentinelLog{% endblock %}
+
+{% block content %}
+<div class="page-head flex-between">
+  <div>
+    <div class="page-title">Alerts</div>
+    <div class="page-sub">{{ alerts|length }} total alerts across all monitor sessions</div>
+  </div>
+</div>
+
+{% if alerts %}
+<div style="display:flex;flex-direction:column;gap:10px">
+  {% for a in alerts %}
+  <div class="card" style="cursor:pointer;transition:border-color .15s" onclick="window.location='/alerts/{{ a.id }}'">
+    <div style="display:flex;align-items:flex-start;gap:14px">
+      <div class="alert-icon {{ 'crit' if a.rule == 'brute_force' else 'warn' }}" style="margin-top:2px">
+        <i class="ti {{ 'ti-alert-triangle' if a.rule == 'brute_force' else 'ti-clock' }}" aria-hidden="true"></i>
+      </div>
+      <div style="flex:1">
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px">
+          <span style="font-size:14px;font-weight:500;color:var(--text)">{{ a.title }}</span>
+          <span class="pill {{ 'pill-red' if a.severity == 'critical' else ('pill-amber' if a.severity == 'high' else 'pill-blue') }}">{{ a.severity }}</span>
+          <span class="pill {{ 'pill-red' if a.rule == 'brute_force' else 'pill-amber' }}">{{ a.rule.replace('_',' ') }}</span>
+        </div>
+        <div style="font-size:13px;color:var(--text-muted)">{{ a.description }}</div>
+        <div style="font-size:12px;color:var(--text-muted);margin-top:6px;display:flex;gap:16px">
+          {% if a.source_ip %}<span><i class="ti ti-network" style="font-size:12px" aria-hidden="true"></i> {{ a.source_ip }}</span>{% endif %}
+          {% if a.username %}<span><i class="ti ti-user" style="font-size:12px" aria-hidden="true"></i> {{ a.username }}</span>{% endif %}
+          <span><i class="ti ti-hash" style="font-size:12px" aria-hidden="true"></i> {{ a.event_count }} events</span>
+          <span><i class="ti ti-clock" style="font-size:12px" aria-hidden="true"></i> {{ a.timestamp[:19] }}</span>
+        </div>
+      </div>
+      <span style="font-size:12px;color:var(--accent);white-space:nowrap">View →</span>
+    </div>
+  </div>
+  {% endfor %}
+</div>
+{% else %}
+<div class="card">
+  <div class="empty-state">
+    <div class="empty-state-icon"><i class="ti ti-bell-off" aria-hidden="true"></i></div>
+    <div class="empty-state-title">No alerts yet</div>
+    <div class="empty-state-text">Start a monitor to begin detecting threats.</div>
+    <a href="/monitor/new" class="btn btn-primary" style="margin-top:16px">Start a monitor</a>
+  </div>
+</div>
+{% endif %}
+{% endblock %}

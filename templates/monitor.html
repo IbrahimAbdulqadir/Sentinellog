@@ -1,0 +1,160 @@
+{% extends "base.html" %}
+{% block title %}Monitor {{ session_id }} — SentinelLog{% endblock %}
+{% block topbar_actions %}
+<button class="btn btn-danger btn-sm" id="stopBtn" onclick="stopMonitor()">
+  <i class="ti ti-player-stop" aria-hidden="true"></i>Stop
+</button>
+{% endblock %}
+
+{% block content %}
+<div class="page-head flex-between">
+  <div>
+    <div class="page-title" id="monitorTitle">Monitor <span style="color:var(--accent)">{{ session_id }}</span></div>
+    <div class="page-sub" id="monitorSub">Starting up...</div>
+  </div>
+</div>
+
+<div class="metrics mb-16">
+  <div class="metric">
+    <div class="metric-label"><i class="ti ti-file-text" aria-hidden="true"></i>Lines processed</div>
+    <div class="metric-value" id="lsLines">0</div>
+  </div>
+  <div class="metric m-red">
+    <div class="metric-label"><i class="ti ti-x" aria-hidden="true"></i>Auth failures</div>
+    <div class="metric-value" id="lsFailures">0</div>
+  </div>
+  <div class="metric m-green">
+    <div class="metric-label"><i class="ti ti-check" aria-hidden="true"></i>Auth successes</div>
+    <div class="metric-value" id="lsSuccess">0</div>
+  </div>
+  <div class="metric m-amber">
+    <div class="metric-label"><i class="ti ti-bell" aria-hidden="true"></i>Alerts fired</div>
+    <div class="metric-value" id="lsAlerts">0</div>
+  </div>
+</div>
+
+<div style="display:grid;grid-template-columns:1fr 340px;gap:16px">
+
+  <div>
+    <div class="card">
+      <div class="card-head">
+        <span class="card-title">Live log feed</span>
+        <span class="pill pill-green" id="feedPill">● connecting</span>
+      </div>
+      <div class="terminal" id="terminal">
+        <div class="t-line"><span class="t-dim">Connecting to session {{ session_id }}...</span></div>
+      </div>
+    </div>
+  </div>
+
+  <div>
+    <div class="card">
+      <div class="card-head">
+        <span class="card-title">Live alerts</span>
+        <span class="pill pill-red" id="alertCountPill" style="display:none">0</span>
+      </div>
+      <div id="liveAlerts">
+        <div class="empty-state" style="padding:24px">
+          <div class="empty-state-icon"><i class="ti ti-bell-off" aria-hidden="true"></i></div>
+          <div class="empty-state-title">No alerts yet</div>
+          <div class="empty-state-text">Watching for threats...</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+</div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+const SESSION_ID = "{{ session_id }}";
+let lineCount=0, failureCount=0, successCount=0, alertCount=0;
+const terminal = document.getElementById('terminal');
+let firstLog = true;
+
+function ts() { return new Date().toTimeString().slice(0,8); }
+
+function addLog(cls, text) {
+  if (firstLog) { terminal.innerHTML = ''; firstLog = false; }
+  const line = document.createElement('div');
+  line.className = 't-line';
+  line.innerHTML = `<span class="t-ts">${ts()}</span><span class="${cls}">${text}</span>`;
+  terminal.appendChild(line);
+  terminal.scrollTop = terminal.scrollHeight;
+  while (terminal.children.length > 200) terminal.removeChild(terminal.firstChild);
+}
+
+function addAlert(alert) {
+  alertCount++;
+  document.getElementById('lsAlerts').textContent = alertCount;
+  const pill = document.getElementById('alertCountPill');
+  pill.style.display = 'inline-flex';
+  pill.textContent = alertCount;
+
+  const panel = document.getElementById('liveAlerts');
+  if (panel.querySelector('.empty-state')) panel.innerHTML = '';
+
+  const div = document.createElement('div');
+  div.className = 'alert-item';
+  div.style.cssText = 'cursor:pointer';
+  div.onclick = () => window.location = `/alerts/${alert.id}`;
+  div.innerHTML = `
+    <div class="alert-icon ${alert.rule === 'brute_force' ? 'crit' : 'warn'}">
+      <i class="ti ${alert.rule === 'brute_force' ? 'ti-alert-triangle' : 'ti-clock'}" aria-hidden="true"></i>
+    </div>
+    <div style="flex:1">
+      <div class="alert-title">${alert.title}</div>
+      <div class="alert-desc">${alert.description.slice(0,70)}...</div>
+    </div>
+  `;
+  panel.insertBefore(div, panel.firstChild);
+}
+
+// Load session info
+fetch(`/api/monitor/{{ session_id }}/status`).then(r=>r.json()).then(d => {
+  if (d.target_name) {
+    document.getElementById('monitorTitle').innerHTML = `Monitor — <span style="color:var(--accent)">${d.target_name}</span>`;
+    document.getElementById('monitorSub').textContent = `${d.mode === 'tail' ? 'Live tail' : 'Replay'} · started ${new Date(d.started_at).toLocaleTimeString()}`;
+  }
+}).catch(()=>{});
+
+const evtSource = new EventSource(`/api/monitor/{{ session_id }}/events`);
+document.getElementById('feedPill').textContent = '● streaming';
+
+// Tell the server to start replaying NOW that SSE is connected
+fetch(`/api/monitor/{{ session_id }}/run`, {method: 'POST'});
+
+evtSource.addEventListener('log_event', e => {
+  const d = JSON.parse(e.data);
+  lineCount++;
+  document.getElementById('lsLines').textContent = lineCount;
+  if (d.event_type === 'auth_failure') {
+    failureCount++;
+    document.getElementById('lsFailures').textContent = failureCount;
+    addLog('t-fail', `FAIL  ${d.username || '?'}@${d.source_ip || '?'}`);
+  } else if (d.event_type === 'auth_success') {
+    successCount++;
+    document.getElementById('lsSuccess').textContent = successCount;
+    addLog('t-ok', `OK    ${d.username || '?'}@${d.source_ip || '?'}`);
+  }
+});
+
+evtSource.addEventListener('alert', e => {
+  const a = JSON.parse(e.data);
+  addAlert(a);
+  addLog('t-alert', `⚠ ALERT — ${a.title}`);
+});
+
+evtSource.addEventListener('heartbeat', () => {});
+
+async function stopMonitor() {
+  await fetch(`/api/monitor/stop/{{ session_id }}`, {method:'POST'});
+  evtSource.close();
+  addLog('t-dim', 'Monitor stopped by user.');
+  document.getElementById('stopBtn').style.display = 'none';
+  document.getElementById('feedPill').textContent = '● stopped';
+  document.getElementById('feedPill').className = 'pill pill-gray';
+}
+</script>
+{% endblock %}

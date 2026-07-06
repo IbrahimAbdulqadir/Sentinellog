@@ -1,0 +1,180 @@
+{% extends "base.html" %}
+{% block title %}New Monitor — SentinelLog{% endblock %}
+
+{% block content %}
+<div class="page-head">
+  <div class="page-title">New Monitor</div>
+  <div class="page-sub">Configure a log source to watch in real time</div>
+</div>
+
+<div style="display:grid;grid-template-columns:1fr 360px;gap:20px;max-width:900px">
+
+  <div>
+    <div class="card mb-16">
+      <div class="card-head"><span class="card-title">Source details</span></div>
+
+      <div class="form-group">
+        <label class="form-label">Monitor name</label>
+        <input type="text" class="input" id="targetName" placeholder="e.g. Production Web Server">
+      </div>
+
+      <div class="form-group" style="margin-bottom:0">
+        <label class="form-label">Input mode</label>
+        <div class="grid-2" style="gap:12px;margin-top:8px">
+          <div class="mode-card selected" id="modeReplay" onclick="selectMode('replay')">
+            <div class="mode-icon"><i class="ti ti-player-play" aria-hidden="true"></i></div>
+            <div class="mode-title">Replay sample log</div>
+            <div class="mode-desc">Stream the bundled auth.log demo to see live detection</div>
+          </div>
+          <div class="mode-card" id="modeTail" onclick="selectMode('tail')">
+            <div class="mode-icon"><i class="ti ti-eye" aria-hidden="true"></i></div>
+            <div class="mode-title">Tail real file</div>
+            <div class="mode-desc">Watch a live log file path on this machine</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="card mb-16">
+      <div class="card-head"><span class="card-title">Log type</span></div>
+      <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:16px">
+        <div class="mode-card selected" id="typeAuth" onclick="selectType('auth')">
+          <div class="mode-icon"><i class="ti ti-lock" aria-hidden="true"></i></div>
+          <div class="mode-title">SSH / Auth</div>
+          <div class="mode-desc">Linux auth.log — brute force &amp; suspicious logins</div>
+        </div>
+        <div class="mode-card" id="typeNginx" onclick="selectType('nginx')">
+          <div class="mode-icon"><i class="ti ti-world" aria-hidden="true"></i></div>
+          <div class="mode-title">Web Server</div>
+          <div class="mode-desc">Nginx/Apache — 404 floods &amp; path traversal</div>
+        </div>
+        <div class="mode-card" id="typeSudo" onclick="selectType('sudo')">
+          <div class="mode-icon"><i class="ti ti-shield-chevron" aria-hidden="true"></i></div>
+          <div class="mode-title">Sudo / Privilege</div>
+          <div class="mode-desc">Sudo logs — privilege escalation detection</div>
+        </div>
+      </div>
+      <label class="form-label">Log file path</label>
+      <input type="text" class="input" id="filepath" value="sample_logs/auth.log">
+      <div class="form-hint mt-8" id="filepathHint">Bundled sample — brute force &amp; suspicious login detection</div>
+    </div>
+
+    <div class="card">
+      <div class="card-head"><span class="card-title">Detection rules</span><span class="pill pill-blue" id="ruleCount">2 active</span></div>
+      <div id="rulesList">
+        <div class="alert-item">
+          <div class="alert-icon crit"><i class="ti ti-alert-triangle" aria-hidden="true"></i></div>
+          <div><div class="alert-title">Brute force</div><div class="alert-desc">5+ failed logins from same IP within 60 seconds</div></div>
+          <span class="pill pill-red" style="margin-left:auto">active</span>
+        </div>
+        <div class="alert-item">
+          <div class="alert-icon warn"><i class="ti ti-clock" aria-hidden="true"></i></div>
+          <div><div class="alert-title">Suspicious login time</div><div class="alert-desc">Login during 00:00–05:00 with no prior night history</div></div>
+          <span class="pill pill-amber" style="margin-left:auto">active</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div>
+    <div style="position:sticky;top:70px">
+      <div class="card mb-16">
+        <div class="card-head"><span class="card-title">Summary</span></div>
+        <div style="display:flex;flex-direction:column;gap:12px">
+          <div class="flex-between">
+            <span class="text-sm text-muted">Name</span>
+            <span class="text-sm" id="summaryName">—</span>
+          </div>
+          <div class="flex-between">
+            <span class="text-sm text-muted">Mode</span>
+            <span class="pill pill-blue" id="summaryMode">Replay</span>
+          </div>
+          <div class="flex-between">
+            <span class="text-sm text-muted">Rules</span>
+            <span class="text-sm">2 active</span>
+          </div>
+        </div>
+      </div>
+
+      <button class="btn btn-primary" style="width:100%;justify-content:center;padding:11px" onclick="startMonitor()">
+        <i class="ti ti-player-play" aria-hidden="true"></i>
+        Start monitoring
+      </button>
+      <div id="launchError" style="display:none;color:var(--red);font-size:12px;margin-top:10px;background:var(--red-bg);padding:10px;border-radius:var(--radius)"></div>
+    </div>
+  </div>
+
+</div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+let currentMode = 'replay';
+let currentType = 'auth';
+
+const typeConfig = {
+  auth:  { file: 'sample_logs/auth.log',         hint: 'Bundled sample — brute force & suspicious login detection', rules: 2, rulesHtml: `<div class="alert-item"><div class="alert-icon crit"><i class="ti ti-alert-triangle"></i></div><div><div class="alert-title">Brute force</div><div class="alert-desc">5+ failed logins from same IP within 60s</div></div><span class="pill pill-red" style="margin-left:auto">active</span></div><div class="alert-item"><div class="alert-icon warn"><i class="ti ti-clock"></i></div><div><div class="alert-title">Suspicious login time</div><div class="alert-desc">Login during 00:00-05:00 with no prior night history</div></div><span class="pill pill-amber" style="margin-left:auto">active</span></div>` },
+  nginx: { file: 'sample_logs/nginx_access.log', hint: 'Bundled sample — web scanner & path traversal detection', rules: 2, rulesHtml: `<div class="alert-item"><div class="alert-icon crit"><i class="ti ti-alert-triangle"></i></div><div><div class="alert-title">404 flood / Web scanner</div><div class="alert-desc">20+ 404 requests from same IP within 60s</div></div><span class="pill pill-red" style="margin-left:auto">active</span></div><div class="alert-item"><div class="alert-icon crit"><i class="ti ti-folder-x"></i></div><div><div class="alert-title">Directory traversal</div><div class="alert-desc">Path traversal patterns like ../../etc/passwd</div></div><span class="pill pill-red" style="margin-left:auto">active</span></div>` },
+  sudo:  { file: 'sample_logs/sudo.log',          hint: 'Bundled sample — privilege escalation detection', rules: 1, rulesHtml: `<div class="alert-item"><div class="alert-icon crit"><i class="ti ti-shield-x"></i></div><div><div class="alert-title">Privilege escalation</div><div class="alert-desc">Unexpected user or dangerous command via sudo</div></div><span class="pill pill-red" style="margin-left:auto">active</span></div>` },
+};
+
+function selectType(type) {
+  document.querySelectorAll('[id^="type"]').forEach(c => c.classList.remove('selected'));
+  document.getElementById('type' + type.charAt(0).toUpperCase() + type.slice(1)).classList.add('selected');
+  currentType = type;
+  const cfg = typeConfig[type];
+  document.getElementById('filepath').value = cfg.file;
+  document.getElementById('filepathHint').textContent = cfg.hint;
+  document.getElementById('rulesList').innerHTML = cfg.rulesHtml;
+  document.getElementById('ruleCount').textContent = cfg.rules + ' active';
+}
+
+function selectMode(mode) {
+  document.querySelectorAll('.mode-card').forEach(c => c.classList.remove('selected'));
+  document.getElementById('mode' + mode.charAt(0).toUpperCase() + mode.slice(1)).classList.add('selected');
+  currentMode = mode;
+  document.getElementById('summaryMode').textContent = mode === 'replay' ? 'Replay' : 'Live tail';
+  document.getElementById('summaryMode').className = `pill ${mode === 'replay' ? 'pill-blue' : 'pill-green'}`;
+  const fp = document.getElementById('filepath');
+  const hint = document.getElementById('filepathHint');
+  if (mode === 'replay') {
+    fp.value = 'sample_logs/auth.log';
+    hint.textContent = 'Bundled sample — shows brute force + suspicious login detection';
+  } else {
+    fp.value = '/var/log/auth.log';
+    hint.textContent = 'Real log file on this machine — requires read permission';
+  }
+}
+
+document.getElementById('targetName').addEventListener('input', e => {
+  document.getElementById('summaryName').textContent = e.target.value || '—';
+});
+
+async function startMonitor() {
+  const errEl = document.getElementById('launchError');
+  errEl.style.display = 'none';
+  const payload = {
+    target_name: document.getElementById('targetName').value || 'Unnamed Source',
+    mode: currentMode,
+    filepath: document.getElementById('filepath').value,
+    delay: currentMode === 'replay' ? 0.15 : 0
+  };
+  try {
+    const res = await fetch('/api/monitor/start', {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify(payload)
+    });
+    const data = await res.json();
+    if (data.session_id) {
+      window.location = `/monitor/${data.session_id}`;
+    } else {
+      errEl.textContent = data.error || 'Failed to start monitor.';
+      errEl.style.display = 'block';
+    }
+  } catch(e) {
+    errEl.textContent = 'Network error — is Flask running?';
+    errEl.style.display = 'block';
+  }
+}
+</script>
+{% endblock %}

