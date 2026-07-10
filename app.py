@@ -1,42 +1,28 @@
 """
-SentinelLog — Flask Application
-Week 1: Live log monitoring dashboard with brute force + suspicious time detection
+SentinelLog - Flask Application
 """
-
-import json
-import uuid
-import queue
-import threading
-import os
+import json, uuid, queue, threading, time
 from datetime import datetime
 from dataclasses import asdict
 from flask import Flask, render_template, request, jsonify, Response, stream_with_context
-
-from core.detection import LogMonitor, parse_log_line
+from core.detection import LogMonitor
 from core.detection_w2 import (
     parse_nginx_line, parse_sudo_line,
     NotFoundFloodDetector, DirectoryTraversalDetector, PrivilegeEscalationDetector
 )
 
 app = Flask(__name__)
-app.secret_key = 'sentinellog-secret-2024'
-
-# In-memory session store
-monitor_sessions: dict = {}
-event_queues: dict = {}
-all_alerts: dict = {}   # session_id -> list of alerts
-all_events: dict = {}   # session_id -> list of recent events (capped)
-
+app.secret_key = 'sentinellog-2024'
+monitor_sessions = {}
+all_alerts = {}
 
 @app.route('/')
 def index():
     return render_template('index.html')
 
-
 @app.route('/monitor/new')
 def new_monitor():
     return render_template('new_monitor.html')
-
 
 @app.route('/monitor/<session_id>')
 def monitor_view(session_id):
@@ -44,16 +30,14 @@ def monitor_view(session_id):
         return render_template('404.html'), 404
     return render_template('monitor.html', session_id=session_id)
 
-
 @app.route('/alerts')
 def alerts_board():
-    flat_alerts = []
+    flat = []
     for sid, alerts in all_alerts.items():
         for a in alerts:
-            flat_alerts.append({**asdict(a), 'session_id': sid})
-    flat_alerts.sort(key=lambda a: a['timestamp'], reverse=True)
-    return render_template('alerts.html', alerts=flat_alerts)
-
+            flat.append({**asdict(a), 'session_id': sid})
+    flat.sort(key=lambda a: a['timestamp'], reverse=True)
+    return render_template('alerts.html', alerts=flat)
 
 @app.route('/alerts/<alert_id>')
 def alert_detail(alert_id):
@@ -63,227 +47,133 @@ def alert_detail(alert_id):
                 return render_template('alert_detail.html', alert=asdict(a), session_id=sid)
     return render_template('404.html'), 404
 
-
-# ── API ──────────────────────────────────────────────────────────────────────
-
 @app.route('/api/monitor/start', methods=['POST'])
 def api_start_monitor():
     data = request.json
     session_id = str(uuid.uuid4())[:8]
-
-    mode = data.get('mode', 'replay')       # 'replay' or 'tail'
-    log_type = data.get('log_type', 'auth')     # 'auth', 'nginx', 'sudo'
-    filepath = data.get('filepath', 'sample_logs/auth.log')
-    delay = float(data.get('delay', 0.05))
-
     q = queue.Queue()
-    event_queues[session_id] = q
     all_alerts[session_id] = []
-    all_events[session_id] = []
-
-    def on_event(event):
-        all_events[session_id].append(event)
-        if len(all_events[session_id]) > 500:
-            all_events[session_id].pop(0)
-        q.put({'event': 'log_event', 'data': {
-            'timestamp': event.timestamp.isoformat(),
-            'event_type': event.event_type,
-            'username': event.username,
-            'source_ip': event.source_ip,
-            'raw_line': event.raw_line
-        }})
-
-    def on_alert(alert):
-        all_alerts[session_id].append(alert)
-        q.put({'event': 'alert', 'data': asdict(alert)})
-
-    monitor = LogMonitor(event_callback=on_event, alert_callback=on_alert)
-    monitor_sessions[session_id] = {
-        'monitor': monitor,
-        'mode': mode,
-        'filepath': filepath,
-        'started_at': datetime.utcnow().isoformat(),
-        'target_name': data.get('target_name', 'Unnamed Source'),
-        'log_type': log_type
+    ready = threading.Event()
+    sess = {
+        'id': session_id,
+        'target_name': data.get('target_name', 'Unnamed'),
+        'log_type': data.get('log_type', 'auth'),
+        'filepath': data.get('filepath', 'sample_logs/auth.log'),
+        'delay': float(data.get('delay', 0.15)),
+        'started_at': datetime.now().isoformat(),
+        'running': False,
+        'queue': q,
+        'ready': ready,
+        'stats': {'lines_processed': 0, 'auth_failures': 0, 'auth_successes': 0, 'alerts_fired': 0}
     }
+    monitor_sessions[session_id] = sess
 
-    # Week 2: support auth, nginx, sudo log types
-    def run_monitor():
-        import time as time_mod
-        w2_404 = NotFoundFloodDetector(threshold=20, window_seconds=60)
-        w2_trav = DirectoryTraversalDetector()
-        w2_priv = PrivilegeEscalationDetector()
+    def worker():
+        ready.wait(timeout=30)
+        if not ready.is_set():
+            return
+        time.sleep(0.3)
+        sess['running'] = True
+        log_type = sess['log_type']
+        filepath = sess['filepath']
+        delay = sess['delay']
 
-        def process_w2_line(line):
-            if log_type == 'nginx':
-                event = parse_nginx_line(line, 2026)
-                if not event:
-                    return
-                on_event_raw(event)
-                for detector in (w2_404, w2_trav):
-                    alert = detector.process_event(event)
-                    if alert:
-                        on_alert(alert)
+        def put(ev, d):
+            q.put({'event': ev, 'data': d})
+
+        def put_alert(alert):
+            sess['stats']['alerts_fired'] += 1
+            all_alerts[session_id].append(alert)
+            put('alert', asdict(alert))
+
+        try:
+            if log_type == 'auth':
+                monitor = LogMonitor()
+                def on_event(event):
+                    sess['stats']['lines_processed'] += 1
+                    if event.event_type == 'auth_failure':
+                        sess['stats']['auth_failures'] += 1
+                    elif event.event_type == 'auth_success':
+                        sess['stats']['auth_successes'] += 1
+                    put('log_event', {
+                        'timestamp': event.timestamp.isoformat(),
+                        'event_type': event.event_type,
+                        'username': event.username,
+                        'source_ip': event.source_ip,
+                        'raw_line': event.raw_line
+                    })
+                monitor.event_callback = on_event
+                monitor.alert_callback = put_alert
+                monitor.replay_file(filepath, delay=delay, assumed_year=2026)
+
+            elif log_type == 'nginx':
+                d404 = NotFoundFloodDetector(threshold=20, window_seconds=60)
+                dtrav = DirectoryTraversalDetector()
+                with open(filepath, 'r') as f:
+                    for line in f:
+                        if not sess['running']:
+                            break
+                        sess['stats']['lines_processed'] += 1
+                        event = parse_nginx_line(line, 2026)
+                        if event:
+                            put('log_event', {
+                                'timestamp': event.timestamp.isoformat(),
+                                'event_type': event.event_type,
+                                'username': None,
+                                'source_ip': event.source_ip,
+                                'raw_line': event.raw_line
+                            })
+                            for det in (d404, dtrav):
+                                alert = det.process_event(event)
+                                if alert:
+                                    put_alert(alert)
+                        time.sleep(delay)
+
             elif log_type == 'sudo':
-                event = parse_sudo_line(line, 2026)
-                if not event:
-                    return
-                on_event_raw(event)
-                alert = w2_priv.process_event(event)
-                if alert:
-                    on_alert(alert)
-            else:
-                monitor.process_line(line, assumed_year=2026)
+                dpriv = PrivilegeEscalationDetector()
+                with open(filepath, 'r') as f:
+                    for line in f:
+                        if not sess['running']:
+                            break
+                        sess['stats']['lines_processed'] += 1
+                        event = parse_sudo_line(line, 2026)
+                        if event:
+                            put('log_event', {
+                                'timestamp': event['timestamp'].isoformat(),
+                                'event_type': 'sudo',
+                                'username': event.get('user'),
+                                'source_ip': None,
+                                'raw_line': event.get('raw_line', '')
+                            })
+                            alert = dpriv.process_event(event)
+                            if alert:
+                                put_alert(alert)
+                        time.sleep(delay)
 
-        def on_event_raw(event):
-            q.put({'event': 'log_event', 'data': {
-                'timestamp': event.get('timestamp', datetime.utcnow()).isoformat() if isinstance(event, dict) else event.timestamp.isoformat(),
-                'event_type': 'web_request' if hasattr(event, 'status_code') else 'sudo',
-                'username': event.get('user') if isinstance(event, dict) else None,
-                'source_ip': event.source_ip if hasattr(event, 'source_ip') else None,
-                'raw_line': event.get('raw_line', '') if isinstance(event, dict) else event.raw_line
-            }})
+        except Exception as e:
+            put('error', {'message': str(e)})
+        finally:
+            put('complete', {})
+            sess['running'] = False
 
-        if log_type in ('nginx', 'sudo'):
-            with open(filepath, 'r') as f:
-                for line in f:
-                    if not monitor._running:
-                        break
-                    process_w2_line(line)
-                    time_mod.sleep(delay)
-        elif mode == 'tail':
-            monitor.start_tail_async(filepath)
-        else:
-            import threading, time as _t
-        def auth_with_delay():
-            _t.sleep(1.0)
-            monitor.replay_file(filepath, delay=delay, assumed_year=2026)
-        threading.Thread(target=auth_with_delay, daemon=True).start()
-
-    # Store run config so /api/monitor/<id>/run can trigger it after SSE connects
-    monitor_sessions[session_id]['run_config'] = {
-        'log_type': log_type,
-        'mode': mode,
-        'filepath': filepath,
-        'delay': delay
-    }
-
+    threading.Thread(target=worker, daemon=True).start()
     return jsonify({'session_id': session_id, 'status': 'started'})
 
-
-
-
-@app.route('/api/monitor/<session_id>/run', methods=['POST'])
-def api_run_monitor(session_id):
-    """Called by the browser after SSE connection is established."""
-    import threading, time as _t
+@app.route('/api/monitor/<session_id>/stream')
+def api_stream(session_id):
     sess = monitor_sessions.get(session_id)
     if not sess:
         return jsonify({'error': 'Not found'}), 404
-
-    cfg = sess.get('run_config', {})
-    log_type = cfg.get('log_type', 'auth')
-    mode = cfg.get('mode', 'replay')
-    filepath = cfg.get('filepath', 'sample_logs/auth.log')
-    delay = cfg.get('delay', 0.15)
-    monitor = sess['monitor']
-    q = event_queues[session_id]
-
-    def on_event(event):
-        all_events[session_id].append(event)
-        if len(all_events[session_id]) > 500:
-            all_events[session_id].pop(0)
-        q.put({'event': 'log_event', 'data': {
-            'timestamp': event.timestamp.isoformat(),
-            'event_type': event.event_type,
-            'username': event.username,
-            'source_ip': event.source_ip,
-            'raw_line': event.raw_line
-        }})
-
-    def on_alert_run(alert):
-        all_alerts[session_id].append(alert)
-        q.put({'event': 'alert', 'data': asdict(alert)})
-
-    monitor.event_callback = on_event
-    monitor.alert_callback = on_alert_run
-
-    def do_run():
-        _t.sleep(0.3)
-        if log_type == 'nginx':
-            w2_404 = NotFoundFloodDetector(threshold=20, window_seconds=60)
-            w2_trav = DirectoryTraversalDetector()
-            monitor._running = True
-            with open(filepath, 'r') as f:
-                for line in f:
-                    if not monitor._running:
-                        break
-                    event = parse_nginx_line(line, 2026)
-                    if event:
-                        q.put({'event': 'log_event', 'data': {
-                            'timestamp': event.timestamp.isoformat(),
-                            'event_type': event.event_type,
-                            'username': None,
-                            'source_ip': event.source_ip,
-                            'raw_line': event.raw_line
-                        }})
-                        for det in (w2_404, w2_trav):
-                            alert = det.process_event(event)
-                            if alert:
-                                all_alerts[session_id].append(alert)
-                                q.put({'event': 'alert', 'data': asdict(alert)})
-                    _t.sleep(delay)
-            monitor._running = False
-
-        elif log_type == 'sudo':
-            w2_priv = PrivilegeEscalationDetector()
-            monitor._running = True
-            with open(filepath, 'r') as f:
-                for line in f:
-                    if not monitor._running:
-                        break
-                    event = parse_sudo_line(line, 2026)
-                    if event:
-                        q.put({'event': 'log_event', 'data': {
-                            'timestamp': event['timestamp'].isoformat(),
-                            'event_type': 'sudo',
-                            'username': event.get('user'),
-                            'source_ip': None,
-                            'raw_line': event.get('raw_line', '')
-                        }})
-                        alert = w2_priv.process_event(event)
-                        if alert:
-                            all_alerts[session_id].append(alert)
-                            q.put({'event': 'alert', 'data': asdict(alert)})
-                    _t.sleep(delay)
-            monitor._running = False
-
-        else:
-            monitor.replay_file(filepath, delay=delay, assumed_year=2026)
-
-    threading.Thread(target=do_run, daemon=True).start()
-    return jsonify({'status': 'running'})
-
-@app.route('/api/monitor/stop/<session_id>', methods=['POST'])
-def api_stop_monitor(session_id):
-    sess = monitor_sessions.get(session_id)
-    if not sess:
-        return jsonify({'error': 'Not found'}), 404
-    sess['monitor'].stop()
-    return jsonify({'status': 'stopped'})
-
-
-@app.route('/api/monitor/<session_id>/events')
-def api_monitor_events(session_id):
-    q = event_queues.get(session_id)
-    if not q:
-        return jsonify({'error': 'Not found'}), 404
+    q = sess['queue']
+    sess['ready'].set()
 
     def generate():
         while True:
             try:
-                item = q.get(timeout=30)
+                item = q.get(timeout=20)
                 yield f"event: {item['event']}\ndata: {json.dumps(item['data'])}\n\n"
+                if item['event'] == 'complete':
+                    break
             except queue.Empty:
                 yield "event: heartbeat\ndata: {}\n\n"
 
@@ -293,37 +183,34 @@ def api_monitor_events(session_id):
         headers={'Cache-Control': 'no-cache', 'X-Accel-Buffering': 'no'}
     )
 
+@app.route('/api/monitor/stop/<session_id>', methods=['POST'])
+def api_stop_monitor(session_id):
+    sess = monitor_sessions.get(session_id)
+    if sess:
+        sess['running'] = False
+    return jsonify({'status': 'stopped'})
 
 @app.route('/api/monitor/<session_id>/status')
 def api_monitor_status(session_id):
     sess = monitor_sessions.get(session_id)
     if not sess:
         return jsonify({'error': 'Not found'}), 404
-    stats = sess['monitor'].get_stats()
     return jsonify({
         'target_name': sess['target_name'],
-        'mode': sess['mode'],
         'started_at': sess['started_at'],
-        'stats': stats,
+        'stats': sess['stats'],
         'alert_count': len(all_alerts.get(session_id, []))
     })
 
-
 @app.route('/api/sessions')
 def api_sessions():
-    result = []
-    for sid, sess in monitor_sessions.items():
-        stats = sess['monitor'].get_stats()
-        result.append({
-            'id': sid,
-            'target_name': sess['target_name'],
-            'mode': sess['mode'],
-            'started_at': sess['started_at'],
-            'stats': stats,
-            'alert_count': len(all_alerts.get(sid, []))
-        })
-    return jsonify(result)
-
+    return jsonify([{
+        'id': s['id'],
+        'target_name': s['target_name'],
+        'started_at': s['started_at'],
+        'stats': s['stats'],
+        'alert_count': len(all_alerts.get(s['id'], []))
+    } for s in monitor_sessions.values()])
 
 @app.route('/api/alerts')
 def api_all_alerts():
@@ -334,19 +221,6 @@ def api_all_alerts():
     flat.sort(key=lambda a: a['timestamp'], reverse=True)
     return jsonify(flat)
 
-
-@app.route('/api/upload-log', methods=['POST'])
-def api_upload_log():
-    """Accept an uploaded log file for analysis."""
-    if 'file' not in request.files:
-        return jsonify({'error': 'No file provided'}), 400
-    f = request.files['file']
-    os.makedirs('uploaded_logs', exist_ok=True)
-    filename = f"uploaded_logs/{uuid.uuid4().hex[:8]}_{f.filename}"
-    f.save(filename)
-    return jsonify({'filepath': filename})
-
-
 if __name__ == '__main__':
-    print("\n  SentinelLog — Week 1\n  http://127.0.0.1:5050\n")
-    app.run(debug=True, host='0.0.0.0', port=5050, threaded=True)
+    print("\n  SentinelLog\n  http://127.0.0.1:5050\n")
+    app.run(debug=False, host='0.0.0.0', port=5050, threaded=True)
