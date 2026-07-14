@@ -6,6 +6,7 @@ from datetime import datetime
 from dataclasses import asdict
 from flask import Flask, render_template, request, jsonify, Response, stream_with_context
 from core.detection import LogMonitor
+from core.alerting import TelegramAlerter
 from core.detection_w2 import (
     parse_nginx_line, parse_sudo_line,
     NotFoundFloodDetector, DirectoryTraversalDetector, PrivilegeEscalationDetector
@@ -54,6 +55,10 @@ def api_start_monitor():
     q = queue.Queue()
     all_alerts[session_id] = []
     ready = threading.Event()
+    tg = TelegramAlerter(
+        bot_token=data.get('telegram_token', ''),
+        chat_id=data.get('telegram_chat_id', '')
+    )
     sess = {
         'id': session_id,
         'target_name': data.get('target_name', 'Unnamed'),
@@ -64,6 +69,7 @@ def api_start_monitor():
         'running': False,
         'queue': q,
         'ready': ready,
+        'telegram': tg,
         'stats': {'lines_processed': 0, 'auth_failures': 0, 'auth_successes': 0, 'alerts_fired': 0}
     }
     monitor_sessions[session_id] = sess
@@ -74,6 +80,7 @@ def api_start_monitor():
             return
         time.sleep(0.3)
         sess['running'] = True
+        sess['telegram'].send_startup(sess['target_name'])
         log_type = sess['log_type']
         filepath = sess['filepath']
         delay = sess['delay']
@@ -85,6 +92,7 @@ def api_start_monitor():
             sess['stats']['alerts_fired'] += 1
             all_alerts[session_id].append(alert)
             put('alert', asdict(alert))
+            sess['telegram'].send(alert)
 
         try:
             if log_type == 'auth':

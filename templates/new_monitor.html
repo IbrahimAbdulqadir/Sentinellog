@@ -96,7 +96,23 @@
         </div>
       </div>
 
-      <button class="btn btn-primary" style="width:100%;justify-content:center;padding:11px" onclick="startMonitor()">
+          <div class="card mb-16">
+      <div class="card-head">
+        <span class="card-title">📱 Telegram Alerts <span style="font-size:11px;color:var(--text-muted);font-weight:400">(optional)</span></span>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Bot Token</label>
+        <input type="text" class="input" id="telegramToken" placeholder="1234567890:AAG1PPJrkNs...">
+        <div class="form-hint">From @BotFather on Telegram</div>
+      </div>
+      <div class="form-group" style="margin-bottom:0">
+        <label class="form-label">Chat ID</label>
+        <input type="text" class="input" id="telegramChatId" placeholder="8887547354">
+        <div class="form-hint">Your Telegram user ID</div>
+      </div>
+    </div>
+
+    <button class="btn btn-primary" style="width:100%;justify-content:center;padding:11px" onclick="startMonitor()">
         <i class="ti ti-player-play" aria-hidden="true"></i>
         Start monitoring
       </button>
@@ -158,7 +174,9 @@ async function startMonitor() {
       log_type: currentType,
       mode: currentMode,
       filepath: document.getElementById('filepath').value,
-      delay: 0.15
+      delay: 0.15,
+      telegram_token: document.getElementById("telegramToken").value,
+      telegram_chat_id: document.getElementById("telegramChatId").value
     };
   try {
     const res = await fetch('/api/monitor/start', {
