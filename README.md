@@ -1,20 +1,20 @@
 # SentinelLog
 
-**Open-source SIEM-lite for small businesses — real-time log monitoring and threat detection without the enterprise price tag.**
+**Open-source SIEM-lite for small businesses, real-time log monitoring and threat detection without the enterprise price tag.**
 
 ## The problem
 
-Enterprise SIEM tools (Splunk, QRadar, Sentinel) cost thousands of dollars monthly. Small businesses and startups — especially across Africa and other emerging markets — have zero log monitoring because of this price barrier. They are flying blind on their own infrastructure.
+Enterprise SIEM tools (Splunk, QRadar, Sentinel) cost thousands of dollars monthly. Small businesses and startups, especially across Africa and other emerging markets, have zero log monitoring because of this price barrier. They are flying blind on their own infrastructure.
 
 SentinelLog is a free, open-source alternative that watches your server logs in real time and alerts you to active threats.
 
-## Week 1 — What's built
+## Week 1 What's built:
 
-- **Live log monitoring** — watches Linux `auth.log` / `syslog` in real time (live tail) or replays a log file for demo/testing
-- **Brute force detection** — flags 5+ failed login attempts from the same IP within a 60-second sliding window, with severity escalation for sustained attacks
-- **Suspicious login time detection** — learns each user's normal login hours and flags authentication during night hours (00:00–05:00) for accounts with no prior night-time history
-- **Live dashboard** — real-time event feed, alert panel, and session stats via Server-Sent Events
-- **Alert evidence** — every alert captures the raw log lines that triggered it, viewable in a dedicated detail page
+- **Live log monitoring**: watches Linux `auth.log` / `syslog` in real time (live tail) or replays a log file for demo/testing
+- **Brute force detection**: flags 5+ failed login attempts from the same IP within a 60-second sliding window, with severity escalation for sustained attacks
+- **Suspicious login time detection**: learns each user's normal login hours and flags authentication during night hours (00:00–05:00) for accounts with no prior night-time history
+- **Live dashboard**: real-time event feed, alert panel, and session stats via Server-Sent Events
+- **Alert evidence**: every alert captures the raw log lines that triggered it, viewable in a dedicated detail page
 
 ## Quick start
 
@@ -48,6 +48,6 @@ Open `http://127.0.0.1:5050`
 
 ## Author
 
-Ibrahim Abdulqadir — Cybersecurity researcher, BSc Cybersecurity (Bayero University Kano)
+Ibrahim Abdulqadir, Cybersecurity researcher, BSc Cybersecurity (Bayero University Kano)
 
 [LinkedIn](https://www.linkedin.com/in/ibrahim-abdulqadir)
