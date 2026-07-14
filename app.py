@@ -257,3 +257,28 @@ def api_email_test():
         )
     ok = emailer.test()
     return jsonify({'ok': ok, 'error': None if ok else 'Check credentials'})
+
+
+@app.route('/api/telegram/test', methods=['POST'])
+def api_telegram_test():
+    from core.alerting import TelegramAlerter
+    data = request.json
+    tg = TelegramAlerter(data.get('token',''), data.get('chat_id',''))
+    ok = tg.test()
+    return jsonify({'ok': ok, 'error': None if ok else 'Failed to send'})
+
+
+@app.route('/api/email/test', methods=['POST'])
+def api_email_test():
+    from core.alerting import EmailAlerter
+    data = request.json
+    if data.get('provider') == 'gmail':
+        emailer = EmailAlerter.gmail(data.get('username',''), data.get('password',''), data.get('to',''))
+    else:
+        emailer = EmailAlerter(
+            data.get('smtp_host',''), int(data.get('smtp_port', 587)),
+            data.get('username',''), data.get('password',''),
+            data.get('username',''), data.get('to','')
+        )
+    ok = emailer.test()
+    return jsonify({'ok': ok, 'error': None if ok else 'Check credentials'})
