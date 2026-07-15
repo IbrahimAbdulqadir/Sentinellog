@@ -6,11 +6,11 @@ from datetime import datetime
 from dataclasses import asdict
 from flask import Flask, render_template, request, jsonify, Response, stream_with_context
 from core.detection import LogMonitor
-from core.alerting import TelegramAlerter
 from core.detection_w2 import (
     parse_nginx_line, parse_sudo_line,
     NotFoundFloodDetector, DirectoryTraversalDetector, PrivilegeEscalationDetector
 )
+from core.alerting import AlertDispatcher
 
 app = Flask(__name__)
 app.secret_key = 'sentinellog-2024'
@@ -55,13 +55,11 @@ def api_start_monitor():
     q = queue.Queue()
     all_alerts[session_id] = []
     ready = threading.Event()
-    tg = TelegramAlerter(
-        bot_token=data.get('telegram_token', ''),
-        chat_id=data.get('telegram_chat_id', '')
-    )
     sess = {
         'id': session_id,
         'target_name': data.get('target_name', 'Unnamed'),
+        'server_ip': data.get('server_ip', ''),
+        'server_count': len(monitor_sessions) + 1,
         'log_type': data.get('log_type', 'auth'),
         'filepath': data.get('filepath', 'sample_logs/auth.log'),
         'delay': float(data.get('delay', 0.15)),
@@ -69,7 +67,11 @@ def api_start_monitor():
         'running': False,
         'queue': q,
         'ready': ready,
-        'telegram': tg,
+        'telegram_token': data.get('telegram_token', ''),
+        'telegram_chat_id': data.get('telegram_chat_id', ''),
+        'email_username': data.get('email_username', ''),
+        'email_password': data.get('email_password', ''),
+        'email_to': data.get('email_to', ''),
         'stats': {'lines_processed': 0, 'auth_failures': 0, 'auth_successes': 0, 'alerts_fired': 0}
     }
     monitor_sessions[session_id] = sess
@@ -80,10 +82,13 @@ def api_start_monitor():
             return
         time.sleep(0.3)
         sess['running'] = True
-        sess['telegram'].send_startup(sess['target_name'])
         log_type = sess['log_type']
         filepath = sess['filepath']
         delay = sess['delay']
+
+        dispatcher = AlertDispatcher()
+        dispatcher.add_telegram(sess.get('telegram_token', ''), sess.get('telegram_chat_id', ''))
+        dispatcher.add_gmail(sess.get('email_username', ''), sess.get('email_password', ''), sess.get('email_to', ''))
 
         def put(ev, d):
             q.put({'event': ev, 'data': d})
@@ -92,7 +97,10 @@ def api_start_monitor():
             sess['stats']['alerts_fired'] += 1
             all_alerts[session_id].append(alert)
             put('alert', asdict(alert))
-            sess['telegram'].send(alert)
+            try:
+                dispatcher.dispatch(alert)
+            except Exception:
+                pass
 
         try:
             if log_type == 'auth':
@@ -215,6 +223,7 @@ def api_sessions():
     return jsonify([{
         'id': s['id'],
         'target_name': s['target_name'],
+        'server_ip': s.get('server_ip', ''),
         'started_at': s['started_at'],
         'stats': s['stats'],
         'alert_count': len(all_alerts.get(s['id'], []))
@@ -229,56 +238,29 @@ def api_all_alerts():
     flat.sort(key=lambda a: a['timestamp'], reverse=True)
     return jsonify(flat)
 
+@app.route('/api/telegram/test', methods=['POST'])
+def api_telegram_test():
+    from core.alerting import TelegramAlerter
+    data = request.json
+    tg = TelegramAlerter(data.get('token', ''), data.get('chat_id', ''))
+    ok = tg.test()
+    return jsonify({'ok': ok, 'error': None if ok else 'Failed'})
+
+@app.route('/api/email/test', methods=['POST'])
+def api_email_test():
+    from core.alerting import EmailAlerter
+    data = request.json
+    if data.get('provider') == 'gmail':
+        emailer = EmailAlerter.gmail(data.get('username', ''), data.get('password', ''), data.get('to', ''))
+    else:
+        emailer = EmailAlerter(
+            data.get('smtp_host', ''), int(data.get('smtp_port', 587)),
+            data.get('username', ''), data.get('password', ''),
+            data.get('username', ''), data.get('to', '')
+        )
+    ok = emailer.test()
+    return jsonify({'ok': ok, 'error': None if ok else 'Check credentials'})
+
 if __name__ == '__main__':
     print("\n  SentinelLog\n  http://127.0.0.1:5050\n")
     app.run(debug=False, host='0.0.0.0', port=5050, threaded=True)
-
-
-@app.route('/api/telegram/test', methods=['POST'])
-def api_telegram_test():
-    from core.alerting import TelegramAlerter
-    data = request.json
-    tg = TelegramAlerter(data.get('token',''), data.get('chat_id',''))
-    ok = tg.test()
-    return jsonify({'ok': ok, 'error': None if ok else 'Failed to send'})
-
-
-@app.route('/api/email/test', methods=['POST'])
-def api_email_test():
-    from core.alerting import EmailAlerter
-    data = request.json
-    if data.get('provider') == 'gmail':
-        emailer = EmailAlerter.gmail(data.get('username',''), data.get('password',''), data.get('to',''))
-    else:
-        emailer = EmailAlerter(
-            data.get('smtp_host',''), int(data.get('smtp_port', 587)),
-            data.get('username',''), data.get('password',''),
-            data.get('username',''), data.get('to','')
-        )
-    ok = emailer.test()
-    return jsonify({'ok': ok, 'error': None if ok else 'Check credentials'})
-
-
-@app.route('/api/telegram/test', methods=['POST'])
-def api_telegram_test():
-    from core.alerting import TelegramAlerter
-    data = request.json
-    tg = TelegramAlerter(data.get('token',''), data.get('chat_id',''))
-    ok = tg.test()
-    return jsonify({'ok': ok, 'error': None if ok else 'Failed to send'})
-
-
-@app.route('/api/email/test', methods=['POST'])
-def api_email_test():
-    from core.alerting import EmailAlerter
-    data = request.json
-    if data.get('provider') == 'gmail':
-        emailer = EmailAlerter.gmail(data.get('username',''), data.get('password',''), data.get('to',''))
-    else:
-        emailer = EmailAlerter(
-            data.get('smtp_host',''), int(data.get('smtp_port', 587)),
-            data.get('username',''), data.get('password',''),
-            data.get('username',''), data.get('to','')
-        )
-    ok = emailer.test()
-    return jsonify({'ok': ok, 'error': None if ok else 'Check credentials'})

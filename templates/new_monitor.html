@@ -17,6 +17,11 @@
         <label class="form-label">Monitor name</label>
         <input type="text" class="input" id="targetName" placeholder="e.g. Production Web Server">
       </div>
+      <div class="form-group">
+        <label class="form-label">Server IP / Hostname <span style="font-size:11px;color:var(--text-muted);font-weight:400">(optional)</span></label>
+        <input type="text" class="input" id="serverIp" placeholder="e.g. 192.168.1.10 or prod-server-01">
+        <div class="form-hint">Used for identification on the dashboard</div>
+      </div>
 
       <div class="form-group" style="margin-bottom:0">
         <label class="form-label">Input mode</label>
@@ -112,6 +117,46 @@
       </div>
     </div>
 
+    <div class="card mb-16">
+      <div class="card-head">
+        <span class="card-title">📧 Email Alerts <span style="font-size:11px;color:var(--text-muted);font-weight:400">(optional)</span></span>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Provider</label>
+        <select class="select" id="emailProvider" onchange="toggleEmailProvider()">
+          <option value="gmail">Gmail</option>
+          <option value="smtp">Custom SMTP</option>
+        </select>
+      </div>
+      <div id="smtpFields" style="display:none">
+        <div class="form-group">
+          <label class="form-label">SMTP Host</label>
+          <input type="text" class="input" id="smtpHost" placeholder="smtp.example.com">
+        </div>
+        <div class="form-group">
+          <label class="form-label">SMTP Port</label>
+          <input type="text" class="input" id="smtpPort" placeholder="587">
+        </div>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Email / Username</label>
+        <input type="text" class="input" id="emailUsername" placeholder="you@gmail.com">
+      </div>
+      <div class="form-group">
+        <label class="form-label">App Password</label>
+        <input type="password" class="input" id="emailPassword" placeholder="••••••••">
+        <div class="form-hint">For Gmail use an App Password not your real password</div>
+      </div>
+      <div class="form-group" style="margin-bottom:12px">
+        <label class="form-label">Send Alerts To</label>
+        <input type="text" class="input" id="emailTo" placeholder="alerts@example.com">
+      </div>
+      <button class="btn btn-ghost btn-sm" style="width:100%;justify-content:center" onclick="testEmail()">
+        <i class="ti ti-mail" aria-hidden="true"></i> Test email
+      </button>
+      <div id="emailStatus" style="display:none;margin-top:10px;font-size:12px;padding:8px 12px;border-radius:8px"></div>
+    </div>
+
     <button class="btn btn-primary" style="width:100%;justify-content:center;padding:11px" onclick="startMonitor()">
         <i class="ti ti-player-play" aria-hidden="true"></i>
         Start monitoring
@@ -166,17 +211,50 @@ document.getElementById('targetName').addEventListener('input', e => {
   document.getElementById('summaryName').textContent = e.target.value || '—';
 });
 
+function toggleEmailProvider() {
+  const p = document.getElementById('emailProvider').value;
+  document.getElementById('smtpFields').style.display = p === 'smtp' ? 'block' : 'none';
+}
+
+async function testEmail() {
+  const statusEl = document.getElementById('emailStatus');
+  const payload = {
+    provider: document.getElementById('emailProvider').value,
+    username: document.getElementById('emailUsername').value,
+    password: document.getElementById('emailPassword').value,
+    to: document.getElementById('emailTo').value,
+    smtp_host: document.getElementById('smtpHost') ? document.getElementById('smtpHost').value : '',
+    smtp_port: document.getElementById('smtpPort') ? document.getElementById('smtpPort').value : '587'
+  };
+  statusEl.style.display = 'block';
+  statusEl.style.background = 'var(--bg)';
+  statusEl.style.color = 'var(--text-muted)';
+  statusEl.textContent = 'Sending test email...';
+  const res = await fetch('/api/email/test', {
+    method: 'POST', headers: {'Content-Type':'application/json'},
+    body: JSON.stringify(payload)
+  });
+  const d = await res.json();
+  statusEl.style.background = d.ok ? 'var(--green-bg)' : 'var(--red-bg)';
+  statusEl.style.color = d.ok ? 'var(--green-text)' : 'var(--red-text)';
+  statusEl.textContent = d.ok ? '✓ Email sent — check your inbox' : '✗ Failed: ' + (d.error || 'Check credentials');
+}
+
 async function startMonitor() {
   const errEl = document.getElementById('launchError');
   errEl.style.display = 'none';
   const payload = {
       target_name: document.getElementById('targetName').value || 'Unnamed Source',
       log_type: currentType,
+      server_ip: document.getElementById('serverIp').value,
       mode: currentMode,
       filepath: document.getElementById('filepath').value,
       delay: 0.15,
       telegram_token: document.getElementById("telegramToken").value,
-      telegram_chat_id: document.getElementById("telegramChatId").value
+      telegram_chat_id: document.getElementById("telegramChatId").value,
+      email_username: document.getElementById('emailUsername') ? document.getElementById('emailUsername').value : '',
+      email_password: document.getElementById('emailPassword') ? document.getElementById('emailPassword').value : '',
+      email_to: document.getElementById('emailTo') ? document.getElementById('emailTo').value : ''
     };
   try {
     const res = await fetch('/api/monitor/start', {
