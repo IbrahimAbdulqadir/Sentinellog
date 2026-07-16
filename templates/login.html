@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Sign in — SentinelLog</title>
+  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@600;700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@latest/tabler-icons.min.css">
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      background: #0B0E14; color: #F5F1E8; font-family: 'Inter', sans-serif;
+      min-height: 100vh; display: flex; align-items: center; justify-content: center;
+    }
+    .box { width: 100%; max-width: 360px; padding: 32px; }
+    .brand { display: flex; align-items: center; gap: 10px; justify-content: center; margin-bottom: 28px; }
+    .brand-icon { width: 34px; height: 34px; border-radius: 10px; background: linear-gradient(135deg, #FFB238, #14B8A6); display: flex; align-items: center; justify-content: center; }
+    .brand-icon i { font-size: 17px; color: #0B0E14; }
+    .brand-name { font-family: 'Space Grotesk', sans-serif; font-size: 19px; font-weight: 700; }
+    .card { background: #161C27; border: 1px solid rgba(255,255,255,.1); border-radius: 16px; padding: 26px; }
+    .field { margin-bottom: 16px; }
+    label { display: block; font-size: 11px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: #9C948A; margin-bottom: 7px; }
+    input { width: 100%; background: #1B2230; border: 1px solid rgba(255,255,255,.1); border-radius: 10px; color: #F5F1E8; font-size: 14px; padding: 11px 13px; outline: none; }
+    input:focus { border-color: #14B8A6; }
+    button { width: 100%; background: #FFB238; color: #181410; border: none; border-radius: 10px; padding: 12px; font-size: 13px; font-weight: 700; cursor: pointer; margin-top: 6px; }
+    button:hover { background: #C97E17; color: #fff; }
+    .error { background: rgba(226,72,58,.15); color: #FF9C8C; border: 1px solid rgba(226,72,58,.3); border-radius: 10px; padding: 10px 13px; font-size: 12.5px; margin-bottom: 16px; }
+  </style>
+</head>
+<body>
+  <div class="box">
+    <div class="brand">
+      <div class="brand-icon"><i class="ti ti-shield-check" aria-hidden="true"></i></div>
+      <span class="brand-name">SentinelLog</span>
+    </div>
+    <div class="card">
+      {% if error %}<div class="error">{{ error }}</div>{% endif %}
+      <form method="POST">
+        <div class="field">
+          <label>Username</label>
+          <input type="text" name="username" autofocus required>
+        </div>
+        <div class="field">
+          <label>Password</label>
+          <input type="password" name="password" required>
+        </div>
+        <button type="submit">Sign in</button>
+      </form>
+    </div>
+  </div>
+</body>
+</html>
