@@ -15,13 +15,15 @@ from core.detection_w2 import (
     NotFoundFloodDetector, DirectoryTraversalDetector, PrivilegeEscalationDetector
 )
 from core.alerting import AlertDispatcher
-from models import db, AdminUser, MonitorSession, AlertRecord
+from core.behavior import check_login_behavior, check_command_behavior
+from models import db, AdminUser, MonitorSession, AlertRecord, BehaviorBaseline
 
 load_dotenv()  # reads the .env file into environment variables
 
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 app = Flask(__name__)
 app.secret_key = os.environ.get('SECRET_KEY', 'dev-only-fallback-key')
-app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///sentinellog.db'
+app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///' + os.path.join(BASE_DIR, 'sentinellog.db')
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 db.init_app(app)
 
@@ -36,7 +38,7 @@ active_streams = {}
 
 @login_manager.user_loader
 def load_user(user_id):
-    return AdminUser.query.get(int(user_id))
+    return db.session.get(AdminUser, int(user_id))
 
 
 def init_db():
@@ -89,7 +91,7 @@ def new_monitor():
 @app.route('/monitor/<session_id>')
 @login_required
 def monitor_view(session_id):
-    sess = MonitorSession.query.get(session_id)
+    sess = db.session.get(MonitorSession, session_id)
     if not sess:
         return render_template('404.html'), 404
     return render_template('monitor.html', session_id=session_id)
@@ -104,13 +106,44 @@ def alerts_board():
 @app.route('/alerts/<alert_id>')
 @login_required
 def alert_detail(alert_id):
-    record = AlertRecord.query.get(alert_id)
+    record = db.session.get(AlertRecord, alert_id)
     if not record:
         return render_template('404.html'), 404
     return render_template('alert_detail.html', alert=record.to_dict(), session_id=record.session_id)
 
 
 # ─── Shared line-reading helper ─────────────────────────────────────────────
+
+# ─── Behavioral baseline helper ─────────────────────────────────────────────
+
+def _get_baseline_row(log_type, identity):
+    baseline_id = f"{log_type}:{identity}"
+    row = db.session.get(BehaviorBaseline, baseline_id)
+    if not row:
+        row = BehaviorBaseline(id=baseline_id, log_type=log_type, identity=identity, event_count=0)
+        db.session.add(row)
+    return row
+
+
+def _baseline_summary(log_type, identity):
+    """Plain-text summary of a real account's history, handed to the AI so it can
+    reason about deviation directly instead of only describing today's event."""
+    if not identity:
+        return None
+    row = db.session.get(BehaviorBaseline, f"{log_type}:{identity}")
+    if not row or row.event_count < 1:
+        return None
+    p = row.to_profile()
+    parts = [f"{p['event_count']} prior recorded events for '{identity}'."]
+    if p.get('known_ips'):
+        parts.append(f"Usual IPs: {', '.join(p['known_ips'])}.")
+    if p.get('login_hours'):
+        hours = sorted(p['login_hours'])
+        parts.append(f"Usual login hours: {', '.join(f'{h:02d}:00' for h in hours)}.")
+    if p.get('commands'):
+        parts.append(f"Usual commands: {', '.join(p['commands'])}.")
+    return " ".join(parts)
+
 
 def iter_log_lines(filepath, mode, delay, is_running):
     """
@@ -120,7 +153,7 @@ def iter_log_lines(filepath, mode, delay, is_running):
     appended, like the real `tail -f` command. This is what makes 'watch a real log file' actually work.
     """
     if mode == 'tail':
-        with open(filepath, 'r') as f:
+        with open(filepath, 'r', encoding='utf-8', errors='ignore') as f:
             f.seek(0, 2)  # jump to current end of file — ignore everything already in it
             while is_running():
                 line = f.readline()
@@ -129,7 +162,7 @@ def iter_log_lines(filepath, mode, delay, is_running):
                 else:
                     time.sleep(1.0)
     else:
-        with open(filepath, 'r') as f:
+        with open(filepath, 'r', encoding='utf-8', errors='ignore') as f:
             for line in f:
                 if not is_running():
                     break
@@ -142,7 +175,14 @@ def iter_log_lines(filepath, mode, delay, is_running):
 @app.route('/api/monitor/start', methods=['POST'])
 @login_required
 def api_start_monitor():
-    data = request.json
+    return jsonify(_start_monitor_session(request.json))
+
+
+def _start_monitor_session(data):
+    """
+    Shared by both starting a brand-new monitor from the form, and resuming
+    a session that's no longer live (same config, new session_id, new worker).
+    """
     session_id = str(uuid.uuid4())[:8]
     q = queue.Queue()
     ready = threading.Event()
@@ -166,19 +206,28 @@ def api_start_monitor():
     db.session.add(sess_row)
     db.session.commit()
 
-    active_streams[session_id] = {'queue': q, 'ready': ready, 'running': False}
+    active_streams[session_id] = {'queue': q, 'ready': ready, 'running': False, 'connected': False}
 
     def is_running():
         return active_streams.get(session_id, {}).get('running', False)
 
     def worker():
         ready.wait(timeout=30)
-        if not ready.is_set():
+        if not active_streams.get(session_id, {}).get('connected', False):
+            # Either nobody connected within 30s, or a Stop request woke this up early
+            # before anyone ever did — either way, there's nothing to process. Clean up
+            # so this correctly shows as historical instead of looking connectable forever.
+            active_streams.pop(session_id, None)
+            with app.app_context():
+                row = db.session.get(MonitorSession, session_id)
+                if row:
+                    row.running = False
+                    db.session.commit()
             return
         time.sleep(0.3)
 
         with app.app_context():
-            row = MonitorSession.query.get(session_id)
+            row = db.session.get(MonitorSession, session_id)
             row.running = True
             db.session.commit()
 
@@ -196,12 +245,26 @@ def api_start_monitor():
                 q.put({'event': ev, 'data': d})
 
             def put_alert(alert):
-                row.alerts_fired += 1
-                db.session.add(AlertRecord.from_alert(alert, session_id))
-                db.session.commit()
-                put('alert', asdict(alert))
+                ai_verdict = None
                 try:
-                    dispatcher.dispatch(alert)
+                    from core.ai_triage import investigate
+                    baseline_ctx = _baseline_summary(log_type, alert.username or alert.source_ip)
+                    ai_verdict = investigate(alert, baseline_context=baseline_ctx)
+                except Exception as e:
+                    print(f"[Monitor {session_id}] AI triage skipped: {e}")
+
+                try:
+                    row.alerts_fired += 1
+                    db.session.add(AlertRecord.from_alert(alert, session_id, ai_verdict=ai_verdict))
+                    db.session.commit()
+                except Exception as e:
+                    # A single alert failing to save should never take down the whole
+                    # monitoring session — log it, reset the DB session, and keep watching.
+                    print(f"[Monitor {session_id}] Failed to save alert, continuing anyway: {e}")
+                    db.session.rollback()
+                put('alert', {**asdict(alert), 'ai_verdict': ai_verdict})
+                try:
+                    dispatcher.dispatch(alert, ai_verdict=ai_verdict)
                 except Exception:
                     pass
 
@@ -215,7 +278,30 @@ def api_start_monitor():
                             row.auth_failures += 1
                         elif event.event_type == 'auth_success':
                             row.auth_successes += 1
-                        db.session.commit()
+                        try:
+                            db.session.commit()
+                        except Exception as e:
+                            print(f"[Monitor {session_id}] Commit failed, continuing: {e}")
+                            db.session.rollback()
+
+                        if event.event_type == 'auth_success' and event.username:
+                            try:
+                                brow = _get_baseline_row('auth', event.username)
+                                profile, behavior_alert = check_login_behavior(
+                                    brow.to_profile(), event.username, event.source_ip,
+                                    event.timestamp.hour, event.timestamp.isoformat(), event.raw_line
+                                )
+                                brow.apply_profile(profile)
+                                brow.last_seen = event.timestamp.isoformat()
+                                if not brow.first_seen:
+                                    brow.first_seen = event.timestamp.isoformat()
+                                db.session.commit()
+                                if behavior_alert:
+                                    put_alert(behavior_alert)
+                            except Exception as e:
+                                print(f"[Monitor {session_id}] Behavior check failed, continuing: {e}")
+                                db.session.rollback()
+
                         put('log_event', {
                             'timestamp': event.timestamp.isoformat(),
                             'event_type': event.event_type,
@@ -227,9 +313,9 @@ def api_start_monitor():
                     monitor.event_callback = on_event
                     monitor.alert_callback = put_alert
                     if mode == 'tail':
-                        monitor.tail_file(filepath, poll_interval=1.0)
+                        monitor.tail_file(filepath, poll_interval=1.0, should_continue=is_running)
                     else:
-                        monitor.replay_file(filepath, delay=delay, assumed_year=2026)
+                        monitor.replay_file(filepath, delay=delay, assumed_year=2026, should_continue=is_running)
 
                 elif log_type == 'nginx':
                     d404 = NotFoundFloodDetector(threshold=20, window_seconds=60)
@@ -249,7 +335,11 @@ def api_start_monitor():
                                 alert = det.process_event(event)
                                 if alert:
                                     put_alert(alert)
-                        db.session.commit()
+                        try:
+                            db.session.commit()
+                        except Exception as e:
+                            print(f"[Monitor {session_id}] Commit failed, continuing: {e}")
+                            db.session.rollback()
 
                 elif log_type == 'sudo':
                     dpriv = PrivilegeEscalationDetector()
@@ -267,7 +357,31 @@ def api_start_monitor():
                             alert = dpriv.process_event(event)
                             if alert:
                                 put_alert(alert)
-                        db.session.commit()
+
+                            user = event.get('user')
+                            command = event.get('command') or event.get('raw_line', '').split('COMMAND=')[-1]
+                            if user and command:
+                                try:
+                                    brow = _get_baseline_row('sudo', user)
+                                    profile, behavior_alert = check_command_behavior(
+                                        brow.to_profile(), user, command,
+                                        event['timestamp'].isoformat(), event.get('raw_line', '')
+                                    )
+                                    brow.apply_profile(profile)
+                                    brow.last_seen = event['timestamp'].isoformat()
+                                    if not brow.first_seen:
+                                        brow.first_seen = event['timestamp'].isoformat()
+                                    db.session.commit()
+                                    if behavior_alert:
+                                        put_alert(behavior_alert)
+                                except Exception as e:
+                                    print(f"[Monitor {session_id}] Behavior check failed, continuing: {e}")
+                                    db.session.rollback()
+                        try:
+                            db.session.commit()
+                        except Exception as e:
+                            print(f"[Monitor {session_id}] Commit failed, continuing: {e}")
+                            db.session.rollback()
 
             except Exception as e:
                 put('error', {'message': str(e)})
@@ -275,10 +389,51 @@ def api_start_monitor():
                 put('complete', {})
                 row.running = False
                 db.session.commit()
-                active_streams[session_id]['running'] = False
+                # The worker is genuinely done now — remove it so a page reload after this
+                # correctly shows "historical" instead of falsely looking connectable forever.
+                active_streams.pop(session_id, None)
 
     threading.Thread(target=worker, daemon=True).start()
-    return jsonify({'session_id': session_id, 'status': 'started'})
+    return {'session_id': session_id, 'status': 'started'}
+
+
+@app.route('/api/monitor/<session_id>/resume', methods=['POST'])
+@login_required
+def api_resume_monitor(session_id):
+    """
+    Start a brand-new live session using the exact same config as an old one —
+    same file, mode, log type, and alert channels. This is what 'continue
+    watching' actually means: the old session_id's own worker thread is gone
+    once the process restarts or it finishes, but its settings live on in the
+    database, so we just start fresh with them and hand back a new session_id.
+    """
+    old = db.session.get(MonitorSession, session_id)
+    if not old:
+        return jsonify({'error': 'Original session not found'}), 404
+    result = _start_monitor_session({
+        'target_name': old.target_name,
+        'server_ip': old.server_ip,
+        'log_type': old.log_type,
+        'filepath': old.filepath,
+        'mode': old.mode,
+        'delay': old.delay,
+        'telegram_token': old.telegram_token,
+        'telegram_chat_id': old.telegram_chat_id,
+        'email_username': old.email_username,
+        'email_password': old.email_password,
+        'email_to': old.email_to,
+    })
+    return jsonify(result)
+
+
+@app.route('/api/monitor/<session_id>/alerts')
+@login_required
+def api_session_alerts(session_id):
+    """Historical alerts already saved for this specific session — used to
+    populate the Live Alerts panel when a monitor page is opened after the
+    fact, instead of only showing alerts that stream in after the page loads."""
+    records = AlertRecord.query.filter_by(session_id=session_id).order_by(AlertRecord.timestamp.desc()).all()
+    return jsonify([r.to_dict() for r in records])
 
 
 @app.route('/api/monitor/<session_id>/stream')
@@ -288,6 +443,7 @@ def api_stream(session_id):
     if not stream:
         return jsonify({'error': 'This session is not currently live in this process (e.g. the server restarted). Historical alerts are still saved.'}), 404
     q = stream['queue']
+    stream['connected'] = True
     stream['ready'].set()
 
     def generate():
@@ -311,7 +467,10 @@ def api_stream(session_id):
 def api_stop_monitor(session_id):
     if session_id in active_streams:
         active_streams[session_id]['running'] = False
-    row = MonitorSession.query.get(session_id)
+        # If nobody ever connected to this session's live view, its worker is still
+        # blocked waiting for that — wake it up now instead of leaving it stuck for 30s.
+        active_streams[session_id]['ready'].set()
+    row = db.session.get(MonitorSession, session_id)
     if row:
         row.running = False
         db.session.commit()
@@ -320,14 +479,22 @@ def api_stop_monitor(session_id):
 @app.route('/api/monitor/<session_id>/status')
 @login_required
 def api_monitor_status(session_id):
-    row = MonitorSession.query.get(session_id)
+    row = db.session.get(MonitorSession, session_id)
     if not row:
         return jsonify({'error': 'Not found'}), 404
     return jsonify({
         'target_name': row.target_name,
         'started_at': row.started_at,
         'stats': row.stats_dict(),
-        'alert_count': AlertRecord.query.filter_by(session_id=session_id).count()
+        'alert_count': AlertRecord.query.filter_by(session_id=session_id).count(),
+        'filepath': row.filepath,
+        'mode': row.mode,
+        'log_type': row.log_type,
+        'running': row.running,
+        # True the instant a session is created, even before its first byte is processed —
+        # this is what should gate "try to connect", not `running`, which only flips true
+        # AFTER something connects. Gating on `running` was a chicken-and-egg deadlock.
+        'live_available': session_id in active_streams
     })
 
 @app.route('/api/sessions')
@@ -356,7 +523,7 @@ def api_telegram_test():
     data = request.json
     tg = TelegramAlerter(data.get('token', ''), data.get('chat_id', ''))
     ok = tg.test()
-    return jsonify({'ok': ok, 'error': None if ok else 'Failed'})
+    return jsonify({'ok': ok, 'error': None if ok else tg.last_error})
 
 @app.route('/api/email/test', methods=['POST'])
 @login_required
@@ -372,10 +539,11 @@ def api_email_test():
             data.get('username', ''), data.get('to', '')
         )
     ok = emailer.test()
-    return jsonify({'ok': ok, 'error': None if ok else 'Check credentials'})
+    return jsonify({'ok': ok, 'error': None if ok else emailer.last_error})
 
 
 if __name__ == '__main__':
     init_db()
-    print("\n  SentinelLog\n  http://127.0.0.1:5050\n")
-    app.run(debug=False, host='0.0.0.0', port=5050, threaded=True)
+    from waitress import serve
+    print("\n  SentinelLog\n  http://127.0.0.1:5050\n  (running on waitress, not the Flask dev server)\n")
+    serve(app, host='0.0.0.0', port=5050, threads=8)

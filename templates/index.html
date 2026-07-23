@@ -86,9 +86,9 @@ async function loadDashboard() {
     fetch('/api/alerts').then(r=>r.json()).catch(()=>[])
   ]);
 
-  const critical = alertRes.filter(a => a.rule === 'brute_force').length;
+  const critical = alertRes.filter(a => a.severity === 'critical').length;
   const suspicious = alertRes.filter(a => a.rule === 'suspicious_time').length;
-  const totalEvents = sessRes.reduce((a,s) => a + (s.stats?.events_parsed || 0), 0);
+  const totalEvents = sessRes.reduce((a,s) => a + (s.stats?.lines_processed || 0), 0);
 
   document.getElementById('statMonitors').textContent = sessRes.length || '0';
   document.getElementById('statCritical').textContent = critical || '0';
@@ -103,8 +103,8 @@ async function loadDashboard() {
   if (alertRes.length > 0) {
     ra.innerHTML = alertRes.slice(0,5).map(a => `
       <div class="alert-item">
-        <div class="alert-icon ${a.rule === 'brute_force' ? 'crit' : 'warn'}">
-          <i class="ti ${a.rule === 'brute_force' ? 'ti-alert-triangle' : 'ti-clock'}" aria-hidden="true"></i>
+        <div class="alert-icon ${a.severity === 'critical' ? 'crit' : 'warn'}">
+          <i class="ti ${a.severity === 'critical' ? 'ti-alert-triangle' : 'ti-clock'}" aria-hidden="true"></i>
         </div>
         <div style="flex:1">
           <div class="alert-title">${a.title}</div>
@@ -124,7 +124,7 @@ async function loadDashboard() {
         <div class="s-icon"><i class="ti ${icons[i % icons.length]}" aria-hidden="true"></i></div>
         <div style="flex:1">
           <div class="s-name">${s.target_name}</div>
-          <div class="s-meta">${s.mode === 'tail' ? 'Live tail' : 'Replay'} · ${s.stats?.events_parsed || 0} events</div>
+          <div class="s-meta">${s.mode === 'tail' ? 'Live tail' : 'Replay'} · ${s.stats?.lines_processed || 0} events</div>
         </div>
         <span class="pill ${s.mode === 'tail' ? 'pill-green' : 'pill-blue'}">${s.mode === 'tail' ? 'live' : 'replay'}</span>
       </div>
@@ -139,7 +139,7 @@ async function loadDashboard() {
 
 function connectFeed(sessionId) {
   if (activeEventSource) return;
-  activeEventSource = new EventSource(`/api/monitor/${sessionId}/events`);
+  activeEventSource = new EventSource(`/api/monitor/${sessionId}/stream`);
   document.getElementById('feedStatus').textContent = '● streaming';
 
   activeEventSource.addEventListener('log_event', e => {

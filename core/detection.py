@@ -4,6 +4,7 @@ Week 1: Linux auth.log parsing, brute force detection, suspicious login time det
 """
 
 import re
+import uuid
 import time
 import threading
 from datetime import datetime, timedelta
@@ -170,7 +171,7 @@ class BruteForceDetector:
                 severity = 'critical' if attempt_count >= self.threshold * 2 else 'high'
 
                 return Alert(
-                    id=f"bf_{ip}_{int(event.timestamp.timestamp())}",
+                    id=f"bf_{ip}_{int(event.timestamp.timestamp())}_{uuid.uuid4().hex[:6]}",
                     rule='brute_force',
                     severity=severity,
                     title=f"Brute force attack detected from {ip}",
@@ -223,7 +224,7 @@ class SuspiciousTimeDetector:
             if key not in self.alerted_events:
                 self.alerted_events.add(key)
                 alert = Alert(
-                    id=f"st_{username}_{int(event.timestamp.timestamp())}",
+                    id=f"st_{username}_{int(event.timestamp.timestamp())}_{uuid.uuid4().hex[:6]}",
                     rule='suspicious_time',
                     severity='medium',
                     title=f"Unusual login time for {username}",
@@ -304,16 +305,22 @@ class LogMonitor:
             if alert:
                 self._emit_alert(alert)
 
-    def replay_file(self, filepath: str, delay: float = 0.05, assumed_year: int = None):
+    def replay_file(self, filepath: str, delay: float = 0.05, assumed_year: int = None, should_continue=None):
         """
         Replay a log file line-by-line with a small delay between lines,
         simulating live tail for demo/testing purposes.
+
+        should_continue: optional external callable — when provided, the loop
+        stops as soon as it returns False, not just when self._running does.
+        Without this, calling stop() from another thread has no effect on an
+        already-running tail/replay loop until it happens to check self._running
+        on its own, which for tail_file's blocking readline() can be never.
         """
         self._running = True
         try:
-            with open(filepath, 'r') as f:
+            with open(filepath, 'r', encoding='utf-8', errors='ignore') as f:
                 for line in f:
-                    if not self._running:
+                    if not self._running or (should_continue and not should_continue()):
                         break
                     self.process_line(line, assumed_year)
                     time.sleep(delay)
@@ -329,15 +336,17 @@ class LogMonitor:
     def stop(self):
         self._running = False
 
-    def tail_file(self, filepath: str, poll_interval: float = 1.0):
+    def tail_file(self, filepath: str, poll_interval: float = 1.0, should_continue=None):
         """
         True live tail — watches a real log file (e.g. /var/log/auth.log)
         and processes new lines as they're appended.
+
+        should_continue: see replay_file's docstring — same reasoning applies.
         """
         self._running = True
-        with open(filepath, 'r') as f:
+        with open(filepath, 'r', encoding='utf-8', errors='ignore') as f:
             f.seek(0, 2)  # seek to end
-            while self._running:
+            while self._running and (should_continue is None or should_continue()):
                 line = f.readline()
                 if line:
                     self.process_line(line)

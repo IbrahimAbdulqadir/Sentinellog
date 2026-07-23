@@ -110,11 +110,15 @@
         <input type="text" class="input" id="telegramToken" placeholder="1234567890:AAG1PPJrkNs...">
         <div class="form-hint">From @BotFather on Telegram</div>
       </div>
-      <div class="form-group" style="margin-bottom:0">
+      <div class="form-group" style="margin-bottom:12px">
         <label class="form-label">Chat ID</label>
         <input type="text" class="input" id="telegramChatId" placeholder="8887547354">
         <div class="form-hint">Your Telegram user ID</div>
       </div>
+      <button class="btn btn-ghost btn-sm" style="width:100%;justify-content:center" onclick="testTelegram()">
+        <i class="ti ti-send" aria-hidden="true"></i> Test Telegram
+      </button>
+      <div id="telegramStatus" style="display:none;margin-top:10px;font-size:12px;padding:8px 12px;border-radius:8px"></div>
     </div>
 
     <div class="card mb-16">
@@ -136,6 +140,7 @@
         <div class="form-group">
           <label class="form-label">SMTP Port</label>
           <input type="text" class="input" id="smtpPort" placeholder="587">
+          <div class="form-hint">Try 465 instead if 587 times out, some networks block it</div>
         </div>
       </div>
       <div class="form-group">
@@ -179,12 +184,17 @@ const typeConfig = {
   sudo:  { file: 'sample_logs/sudo.log',          hint: 'Bundled sample — privilege escalation detection', rules: 1, rulesHtml: `<div class="alert-item"><div class="alert-icon crit"><i class="ti ti-shield-x"></i></div><div><div class="alert-title">Privilege escalation</div><div class="alert-desc">Unexpected user or dangerous command via sudo</div></div><span class="pill pill-red" style="margin-left:auto">active</span></div>` },
 };
 
+let userEditedPath = false;
+document.getElementById('filepath').addEventListener('input', () => { userEditedPath = true; });
+
 function selectType(type) {
   document.querySelectorAll('[id^="type"]').forEach(c => c.classList.remove('selected'));
   document.getElementById('type' + type.charAt(0).toUpperCase() + type.slice(1)).classList.add('selected');
   currentType = type;
   const cfg = typeConfig[type];
-  document.getElementById('filepath').value = cfg.file;
+  if (!userEditedPath) {
+    document.getElementById('filepath').value = cfg.file;
+  }
   document.getElementById('filepathHint').textContent = cfg.hint;
   document.getElementById('rulesList').innerHTML = cfg.rulesHtml;
   document.getElementById('ruleCount').textContent = cfg.rules + ' active';
@@ -198,18 +208,42 @@ function selectMode(mode) {
   document.getElementById('summaryMode').className = `pill ${mode === 'replay' ? 'pill-blue' : 'pill-green'}`;
   const fp = document.getElementById('filepath');
   const hint = document.getElementById('filepathHint');
-  if (mode === 'replay') {
-    fp.value = 'sample_logs/auth.log';
-    hint.textContent = 'Bundled sample — shows brute force + suspicious login detection';
+  if (!userEditedPath) {
+    if (mode === 'replay') {
+      fp.value = 'sample_logs/auth.log';
+      hint.textContent = 'Bundled sample — shows brute force + suspicious login detection';
+    } else {
+      fp.value = '/var/log/auth.log';
+      hint.textContent = 'Real log file on this machine — requires read permission';
+    }
   } else {
-    fp.value = '/var/log/auth.log';
-    hint.textContent = 'Real log file on this machine — requires read permission';
+    hint.textContent = mode === 'replay' ? 'Replaying your chosen file from the top' : 'Watching your chosen file for new lines';
   }
 }
 
 document.getElementById('targetName').addEventListener('input', e => {
   document.getElementById('summaryName').textContent = e.target.value || '—';
 });
+
+async function testTelegram() {
+  const statusEl = document.getElementById('telegramStatus');
+  const payload = {
+    token: document.getElementById('telegramToken').value,
+    chat_id: document.getElementById('telegramChatId').value
+  };
+  statusEl.style.display = 'block';
+  statusEl.style.background = 'var(--surface-2)';
+  statusEl.style.color = 'var(--text-muted)';
+  statusEl.textContent = 'Sending test message...';
+  const res = await fetch('/api/telegram/test', {
+    method: 'POST', headers: {'Content-Type':'application/json'},
+    body: JSON.stringify(payload)
+  });
+  const d = await res.json();
+  statusEl.style.background = d.ok ? 'var(--green-bg)' : 'var(--red-bg)';
+  statusEl.style.color = d.ok ? 'var(--green-text)' : 'var(--red-text)';
+  statusEl.textContent = d.ok ? '✓ Sent — check Telegram' : '✗ Failed: ' + (d.error || 'Check bot token and chat ID');
+}
 
 function toggleEmailProvider() {
   const p = document.getElementById('emailProvider').value;

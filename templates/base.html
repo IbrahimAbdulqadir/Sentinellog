@@ -11,8 +11,10 @@
   <style>
     :root {
       --gold: #FFB238;
+      --gold-rgb: 255,178,56;
       --gold-deep: #C97E17;
       --teal: #14B8A6;
+      --teal-rgb: 20,184,166;
       --teal-deep: #0D8C82;
       --bg: #FBF6EC;
       --surface: #FFFFFF;
@@ -53,6 +55,33 @@
     }
     :focus-visible { outline: 2px solid var(--teal); outline-offset: 2px; border-radius: 3px; }
 
+    /* ── Pulse Field — the system's ambient vigilance, always quietly alive behind the data ── */
+    .pulse-field { position: fixed; inset: 0; z-index: 0; overflow: hidden; pointer-events: none; }
+    .pulse-orb { position: absolute; border-radius: 50%; filter: blur(75px); will-change: transform; }
+    .pulse-orb.o1 { width: 480px; height: 480px; background: radial-gradient(circle, rgba(var(--gold-rgb),.55), transparent 70%); top: -12%; left: -6%; opacity: .55; animation: drift1 34s ease-in-out infinite alternate; }
+    .pulse-orb.o2 { width: 420px; height: 420px; background: radial-gradient(circle, rgba(var(--teal-rgb),.5), transparent 70%); bottom: -16%; right: -8%; opacity: .5; animation: drift2 40s ease-in-out infinite alternate; }
+    .pulse-orb.o3 { width: 380px; height: 380px; background: radial-gradient(circle, rgba(201,126,23,.45), transparent 70%); top: 38%; left: 48%; opacity: .35; animation: drift3 46s ease-in-out infinite alternate; }
+    @keyframes drift1 { 0% { transform: translate(0,0) scale(1); } 100% { transform: translate(130px,90px) scale(1.18); } }
+    @keyframes drift2 { 0% { transform: translate(0,0) scale(1); } 100% { transform: translate(-110px,-70px) scale(1.12); } }
+    @keyframes drift3 { 0% { transform: translate(0,0) scale(1); } 100% { transform: translate(-90px,110px) scale(1.22); } }
+    [data-theme="dark"] .pulse-orb { opacity: .7; }
+    @media (prefers-reduced-motion: reduce) { .pulse-orb { animation: none !important; } }
+    .content { position: relative; z-index: 1; }
+
+    /* ── Entrance sequence — the dashboard waking up, applied via JS on load ── */
+    .fade-in-up { opacity: 0; transform: translateY(14px); animation: fadeInUp .55s cubic-bezier(.16,1,.3,1) forwards; }
+    @keyframes fadeInUp { to { opacity: 1; transform: translateY(0); } }
+    @media (prefers-reduced-motion: reduce) { .fade-in-up { opacity: 1; transform: none; animation: none; } }
+
+    /* ── A live alert landing — the moment the system catches something ── */
+    .alert-arrive { animation: alertArrive .6s cubic-bezier(.16,1,.3,1); }
+    @keyframes alertArrive {
+      0% { opacity: 0; transform: translateX(-14px); background: rgba(var(--red-rgb),.12); }
+      40% { background: rgba(var(--red-rgb),.12); }
+      100% { opacity: 1; transform: translateX(0); background: transparent; }
+    }
+    @media (prefers-reduced-motion: reduce) { .alert-arrive { animation: none; } }
+
     /* ── Top Nav — stays dark regardless of theme, like a fixed instrument bar ── */
     .topnav {
       background: var(--nav-dark); border-bottom: 1px solid rgba(255,255,255,.08);
@@ -75,8 +104,14 @@
 
     /* ── Buttons ── */
     .btn { display: inline-flex; align-items: center; gap: 7px; padding: 10px 18px; border-radius: var(--radius); font-size: 13px; font-weight: 700; cursor: pointer; transition: background .2s, transform .15s, color .2s; border: none; text-decoration: none; }
-    .btn-primary { background: var(--gold); color: #181410; }
+    .btn-primary { background: var(--gold); color: #181410; position: relative; overflow: hidden; }
     .btn-primary:hover { background: var(--gold-deep); color: #fff; transform: translateY(-1px); }
+    .btn-primary::after {
+      content: ""; position: absolute; top: 0; left: -60%; width: 40%; height: 100%;
+      background: linear-gradient(120deg, transparent, rgba(255,255,255,.6), transparent);
+      transform: skewX(-20deg); transition: left .6s ease;
+    }
+    .btn-primary:hover::after { left: 130%; }
     .btn-ghost { background: transparent; color: var(--text-secondary); border: 1px solid var(--border-strong); }
     .btn-ghost:hover { background: var(--surface-2); }
     .btn-danger { background: var(--red-bg); color: var(--red-text); border: 1px solid rgba(var(--red-rgb),.3); }
@@ -90,8 +125,8 @@
     .page-sub { font-size: 13px; color: var(--text-muted); margin-top: 4px; }
 
     /* ── Cards ── */
-    .card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 22px; transition: var(--trans), transform .2s, box-shadow .2s; }
-    .card:hover { transform: translateY(-2px); box-shadow: 0 12px 30px rgba(24,20,16,.08); }
+    .card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 22px; transition: var(--trans), transform .2s, box-shadow .2s, border-color .2s; }
+    .card:hover { transform: translateY(-3px); box-shadow: 0 14px 32px rgba(24,20,16,.1), 0 0 0 1px rgba(var(--gold-rgb),.12); border-color: rgba(var(--gold-rgb),.35); }
     .card-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 18px; }
     .card-title { font-family: var(--display); font-size: 11.5px; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; color: var(--gold-deep); }
     .card-link { font-size: 12.5px; color: var(--teal-deep); cursor: pointer; text-decoration: none; font-weight: 600; }
@@ -99,8 +134,8 @@
 
     /* ── Metric cards ── */
     .metrics { display: grid; grid-template-columns: repeat(4,1fr); gap: 14px; margin-bottom: 22px; }
-    .metric { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 20px 22px; transition: var(--trans), transform .2s, box-shadow .2s; }
-    .metric:hover { transform: translateY(-2px); box-shadow: 0 12px 30px rgba(24,20,16,.08); }
+    .metric { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 20px 22px; transition: var(--trans), transform .2s, box-shadow .2s, border-color .2s; }
+    .metric:hover { transform: translateY(-3px); box-shadow: 0 14px 32px rgba(24,20,16,.1), 0 0 0 1px rgba(var(--teal-rgb),.15); border-color: rgba(var(--teal-rgb),.35); }
     .metric-label { font-family: var(--display); font-size: 10.5px; font-weight: 700; letter-spacing: .09em; text-transform: uppercase; color: var(--text-muted); margin-bottom: 10px; display: flex; align-items: center; gap: 6px; }
     .metric-label i { font-size: 15px; }
     .metric-value { font-family: var(--display); font-size: 30px; font-weight: 700; letter-spacing: -.02em; line-height: 1; }
@@ -238,6 +273,12 @@
 </head>
 <body>
 
+  <div class="pulse-field" aria-hidden="true">
+    <div class="pulse-orb o1"></div>
+    <div class="pulse-orb o2"></div>
+    <div class="pulse-orb o3"></div>
+  </div>
+
   <nav class="topnav">
     <a href="/" class="nav-brand">
       <div class="brand-icon"><i class="ti ti-shield-check" aria-hidden="true"></i></div>
@@ -280,6 +321,37 @@
       if (diff < 3600) return `${Math.floor(diff/60)}m ago`;
       return `${Math.floor(diff/3600)}h ago`;
     }
+
+    // The dashboard waking up — every card/metric/mode-card stages in on load,
+    // and every numeric metric counts up from zero instead of just appearing.
+    (function () {
+      const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+      const staged = document.querySelectorAll('.card, .metric, .mode-card');
+      staged.forEach((el, i) => {
+        if (reduceMotion) return;
+        el.classList.add('fade-in-up');
+        el.style.animationDelay = Math.min(i * 55, 420) + 'ms';
+      });
+
+      if (!reduceMotion) {
+        document.querySelectorAll('.metric-value').forEach(el => {
+          const target = parseInt(el.textContent.replace(/[^\d]/g, ''), 10);
+          if (isNaN(target)) return;
+          const suffix = el.textContent.replace(/[\d,]/g, '');
+          const duration = 700;
+          const start = performance.now();
+          function tick(now) {
+            const p = Math.min((now - start) / duration, 1);
+            const eased = 1 - Math.pow(1 - p, 3);
+            el.textContent = Math.round(target * eased) + suffix;
+            if (p < 1) requestAnimationFrame(tick);
+          }
+          el.textContent = '0' + suffix;
+          requestAnimationFrame(tick);
+        });
+      }
+    })();
   </script>
   {% block extra_scripts %}{% endblock %}
 

@@ -2,12 +2,51 @@
 SentinelLog - Database Models
 Defines what gets saved permanently to disk (sessions, alerts, the admin user).
 """
+import os
 import json
 from datetime import datetime
+from cryptography.fernet import Fernet, InvalidToken
 from flask_sqlalchemy import SQLAlchemy
 from flask_login import UserMixin
+from sqlalchemy.types import TypeDecorator, String
 
 db = SQLAlchemy()
+
+
+def _get_fernet():
+    key = os.environ.get('ENCRYPTION_KEY')
+    if not key:
+        raise RuntimeError(
+            "ENCRYPTION_KEY is missing from your .env file. "
+            "Generate one with: python -c \"from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())\" "
+            "and add it as ENCRYPTION_KEY=... in .env"
+        )
+    return Fernet(key.encode())
+
+
+class EncryptedString(TypeDecorator):
+    """
+    A column type that encrypts values before they hit the database and decrypts
+    them automatically when read back. Used for anything sensitive — Telegram tokens,
+    email passwords — so a copy of the .db file alone isn't enough to read them.
+    """
+    impl = String
+    cache_ok = True
+
+    def process_bind_param(self, value, dialect):
+        if value is None or value == '':
+            return value
+        return _get_fernet().encrypt(value.encode()).decode()
+
+    def process_result_value(self, value, dialect):
+        if value is None or value == '':
+            return value
+        try:
+            return _get_fernet().decrypt(value.encode()).decode()
+        except InvalidToken:
+            # Value predates encryption being added — treat it as legacy plaintext
+            # rather than crashing. Re-saving the row will encrypt it going forward.
+            return value
 
 
 class AdminUser(UserMixin, db.Model):
@@ -30,12 +69,12 @@ class MonitorSession(db.Model):
     started_at = db.Column(db.String(40))
     running = db.Column(db.Boolean, default=False)
 
-    # Alert channel credentials — see note below on encryption
-    telegram_token = db.Column(db.String(200), default='')
-    telegram_chat_id = db.Column(db.String(100), default='')
-    email_username = db.Column(db.String(200), default='')
-    email_password = db.Column(db.String(200), default='')
-    email_to = db.Column(db.String(200), default='')
+    # Alert channel credentials — encrypted at rest, see EncryptedString above
+    telegram_token = db.Column(EncryptedString(500), default='')
+    telegram_chat_id = db.Column(EncryptedString(200), default='')
+    email_username = db.Column(EncryptedString(300), default='')
+    email_password = db.Column(EncryptedString(300), default='')
+    email_to = db.Column(EncryptedString(300), default='')
 
     lines_processed = db.Column(db.Integer, default=0)
     auth_failures = db.Column(db.Integer, default=0)
@@ -49,6 +88,38 @@ class MonitorSession(db.Model):
             'auth_successes': self.auth_successes,
             'alerts_fired': self.alerts_fired,
         }
+
+
+class BehaviorBaseline(db.Model):
+    """
+    What 'normal' looks like for a specific username or IP, built up over time
+    from real events, not reset when a session ends. This is what makes real
+    behavioral detection possible instead of just fixed-threshold rules.
+    """
+    __tablename__ = 'behavior_baseline'
+    id = db.Column(db.String(160), primary_key=True)  # f"{log_type}:{identity}"
+    log_type = db.Column(db.String(20))
+    identity = db.Column(db.String(200))
+    known_ips_json = db.Column(db.Text, default='[]')
+    login_hours_json = db.Column(db.Text, default='[]')
+    commands_json = db.Column(db.Text, default='[]')
+    event_count = db.Column(db.Integer, default=0)
+    first_seen = db.Column(db.String(40))
+    last_seen = db.Column(db.String(40))
+
+    def to_profile(self):
+        return {
+            'known_ips': json.loads(self.known_ips_json or '[]'),
+            'login_hours': json.loads(self.login_hours_json or '[]'),
+            'commands': json.loads(self.commands_json or '[]'),
+            'event_count': self.event_count or 0,
+        }
+
+    def apply_profile(self, profile):
+        self.known_ips_json = json.dumps(profile.get('known_ips', []))
+        self.login_hours_json = json.dumps(profile.get('login_hours', []))
+        self.commands_json = json.dumps(profile.get('commands', []))
+        self.event_count = profile.get('event_count', 0)
 
 
 class AlertRecord(db.Model):
@@ -66,6 +137,7 @@ class AlertRecord(db.Model):
     last_seen = db.Column(db.String(40))
     timestamp = db.Column(db.String(40))
     evidence_json = db.Column(db.Text, default='[]')  # list of raw log lines, stored as JSON text
+    ai_verdict = db.Column(db.Text, default='')  # plain-language triage from the AI, if configured
 
     @property
     def evidence(self):
@@ -89,10 +161,11 @@ class AlertRecord(db.Model):
             'last_seen': self.last_seen,
             'timestamp': self.timestamp,
             'evidence': self.evidence,
+            'ai_verdict': self.ai_verdict,
         }
 
     @classmethod
-    def from_alert(cls, alert, session_id):
+    def from_alert(cls, alert, session_id, ai_verdict=''):
         """Build a row from the existing Alert dataclass produced by core/detection.py."""
         return cls(
             id=alert.id,
@@ -108,4 +181,5 @@ class AlertRecord(db.Model):
             last_seen=alert.last_seen,
             timestamp=alert.timestamp,
             evidence_json=json.dumps(alert.evidence or []),
+            ai_verdict=ai_verdict or '',
         )

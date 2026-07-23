@@ -4,6 +4,7 @@ Nginx/Apache log parser, 404 flood, directory traversal, privilege escalation
 """
 
 import re
+import uuid
 from datetime import datetime, timedelta
 from collections import defaultdict, deque
 from dataclasses import dataclass, field
@@ -161,7 +162,7 @@ class NotFoundFloodDetector:
                 self.alerted_ips.add(ip)
                 paths = list(set(e.path for e in window))[:8]
                 return Alert(
-                    id=f"404_{ip}_{int(event.timestamp.timestamp())}",
+                    id=f"404_{ip}_{int(event.timestamp.timestamp())}_{uuid.uuid4().hex[:6]}",
                     rule='404_flood',
                     severity='high',
                     title=f"Web scanner detected — {ip}",
@@ -199,7 +200,7 @@ class DirectoryTraversalDetector:
         self.seen.add(key)
 
         return Alert(
-            id=f"trav_{event.source_ip}_{int(event.timestamp.timestamp())}",
+            id=f"trav_{event.source_ip}_{int(event.timestamp.timestamp())}_{uuid.uuid4().hex[:6]}",
             rule='directory_traversal',
             severity='critical',
             title=f"Directory traversal attempt — {event.source_ip}",
@@ -252,7 +253,7 @@ class PrivilegeEscalationDetector:
             reason.append(f"suspicious command: {event['command'][:60]}")
 
         return Alert(
-            id=f"privesc_{user}_{int(ts.timestamp())}",
+            id=f"privesc_{user}_{int(ts.timestamp())}_{uuid.uuid4().hex[:6]}",
             rule='privilege_escalation',
             severity=severity,
             title=f"Suspicious sudo usage — {user}",

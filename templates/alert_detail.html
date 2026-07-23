@@ -8,11 +8,18 @@
   </a>
   <div style="display:flex;align-items:center;gap:10px;margin-bottom:6px">
     <span class="pill {{ 'pill-red' if alert.severity == 'critical' else 'pill-amber' }}">{{ alert.severity }}</span>
-    <span class="pill {{ 'pill-red' if alert.rule == 'brute_force' else 'pill-amber' }}">{{ alert.rule.replace('_',' ') }}</span>
+    <span class="pill {{ 'pill-red' if alert.severity == 'critical' else 'pill-amber' }}">{{ alert.rule.replace('_',' ') }}</span>
   </div>
   <div class="page-title">{{ alert.title }}</div>
   <div class="page-sub">{{ alert.description }}</div>
 </div>
+
+{% if alert.ai_verdict %}
+<div class="card mb-16" style="border-color:rgba(var(--gold-rgb),.35);background:var(--accent-bg)">
+  <div class="card-head"><span class="card-title">🤖 What This Means</span></div>
+  <p style="font-size:14px;line-height:1.6;color:var(--text)">{{ alert.ai_verdict }}</p>
+</div>
+{% endif %}
 
 <div style="display:grid;grid-template-columns:1fr 300px;gap:16px">
   <div>
