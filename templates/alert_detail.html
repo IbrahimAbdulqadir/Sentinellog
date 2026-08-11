@@ -64,6 +64,21 @@
         </div>
       </div>
     </div>
+
+    {% if alert.rule == 'brute_force' %}
+    <div class="card mt-16">
+      <div class="card-head"><span class="card-title">Active response</span></div>
+      {% if block %}
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
+        <span class="pill {{ 'pill-red' if block.active else 'pill-blue' }}">{{ 'active' if block.active else 'expired' }}</span>
+        <span style="font-family:var(--mono);font-size:13px;color:var(--text)">{{ block.ip }}</span>
+      </div>
+      <div style="font-size:13px;color:var(--text-muted)">{{ block.note }}</div>
+      {% else %}
+      <div style="font-size:13px;color:var(--text-muted)">No automated block was recorded for this alert.</div>
+      {% endif %}
+    </div>
+    {% endif %}
   </div>
 </div>
 {% endblock %}

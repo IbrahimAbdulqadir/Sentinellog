@@ -110,7 +110,15 @@ def alert_detail(alert_id):
     record = db.session.get(AlertRecord, alert_id)
     if not record:
         return render_template('404.html'), 404
-    return render_template('alert_detail.html', alert=record.to_dict(), session_id=record.session_id)
+    block = IPBlock.query.filter_by(alert_id=alert_id).order_by(IPBlock.id.desc()).first()
+    return render_template('alert_detail.html', alert=record.to_dict(), session_id=record.session_id,
+                            block=block.to_dict() if block else None)
+
+@app.route('/blocks')
+@login_required
+def blocks_board():
+    records = IPBlock.query.order_by(IPBlock.id.desc()).all()
+    return render_template('blocks.html', blocks=[r.to_dict() for r in records])
 
 
 # ─── Shared line-reading helper ─────────────────────────────────────────────
@@ -574,6 +582,12 @@ def api_sessions():
 @login_required
 def api_all_alerts():
     records = AlertRecord.query.order_by(AlertRecord.timestamp.desc()).all()
+    return jsonify([r.to_dict() for r in records])
+
+@app.route('/api/blocks')
+@login_required
+def api_all_blocks():
+    records = IPBlock.query.order_by(IPBlock.id.desc()).all()
     return jsonify([r.to_dict() for r in records])
 
 @app.route('/api/telegram/test', methods=['POST'])

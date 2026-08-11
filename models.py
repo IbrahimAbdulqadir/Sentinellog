@@ -63,6 +63,20 @@ class IPBlock(db.Model):
     active = db.Column(db.Boolean, default=True)
     note = db.Column(db.Text, default='')
 
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'ip': self.ip,
+            'session_id': self.session_id,
+            'alert_id': self.alert_id,
+            'blocked_at': self.blocked_at,
+            'unblock_at': self.unblock_at,
+            'duration_seconds': self.duration_seconds,
+            'block_count': self.block_count,
+            'active': self.active,
+            'note': self.note,
+        }
+
 
 class AdminUser(UserMixin, db.Model):
     """There's only ever one row in this table — the single dashboard login."""
