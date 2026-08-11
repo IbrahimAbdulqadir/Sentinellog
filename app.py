@@ -2,7 +2,7 @@
 SentinelLog - Flask Application
 """
 import os, json, uuid, queue, threading, time
-from datetime import datetime
+from datetime import datetime, timedelta
 from dataclasses import asdict
 from dotenv import load_dotenv
 from flask import Flask, render_template, request, jsonify, Response, stream_with_context, redirect, url_for
@@ -16,7 +16,8 @@ from core.detection_w2 import (
 )
 from core.alerting import AlertDispatcher
 from core.behavior import check_login_behavior, check_command_behavior
-from models import db, AdminUser, MonitorSession, AlertRecord, BehaviorBaseline
+from models import db, AdminUser, MonitorSession, AlertRecord, BehaviorBaseline, IPBlock
+from core.active_response import is_whitelisted, compute_duration, block_ip, unblock_ip
 
 load_dotenv()  # reads the .env file into environment variables
 
@@ -115,6 +116,56 @@ def alert_detail(alert_id):
 # ─── Shared line-reading helper ─────────────────────────────────────────────
 
 # ─── Behavioral baseline helper ─────────────────────────────────────────────
+
+# ─── Active response (automated, scoped, whitelisted, time-boxed) ─────────
+
+def _maybe_block_ip(alert, session_id):
+    ip = alert.source_ip
+    if is_whitelisted(ip):
+        return f"{ip} is on the whitelist — no action taken"
+
+    existing = IPBlock.query.filter_by(ip=ip, active=True).first()
+    if existing:
+        return f"{ip} is already blocked (in effect until {existing.unblock_at})"
+
+    prior_count = IPBlock.query.filter_by(ip=ip).count()
+    duration = compute_duration(prior_count)
+    success, message = block_ip(ip)
+
+    now = datetime.now()
+    row = IPBlock(
+        ip=ip, session_id=session_id, alert_id=alert.id,
+        blocked_at=now.isoformat(),
+        unblock_at=(now + timedelta(seconds=duration)).isoformat(),
+        duration_seconds=duration, block_count=prior_count + 1,
+        active=success, note=message,
+    )
+    db.session.add(row)
+    db.session.commit()
+
+    minutes = duration // 60
+    return message + (f" — blocked for {minutes} minutes (offense #{prior_count + 1})" if success else "")
+
+
+def _unblock_sweep():
+    """Runs forever in the background, checking every 60s for any block whose
+    time is up and lifting it. This is what makes the blocks temporary instead
+    of accidentally permanent."""
+    while True:
+        time.sleep(60)
+        try:
+            with app.app_context():
+                now_iso = datetime.now().isoformat()
+                expired = IPBlock.query.filter(IPBlock.active == True, IPBlock.unblock_at <= now_iso).all()
+                for row in expired:
+                    success, message = unblock_ip(row.ip)
+                    row.active = False
+                    row.note += f" | {message}"
+                    db.session.commit()
+                    print(f"[Active Response] {message}")
+        except Exception as e:
+            print(f"[Active Response] Sweep failed, will retry in 60s: {e}")
+
 
 def _get_baseline_row(log_type, identity):
     baseline_id = f"{log_type}:{identity}"
@@ -245,10 +296,19 @@ def _start_monitor_session(data):
                 q.put({'event': ev, 'data': d})
 
             def put_alert(alert):
+                action_note = None
+                if alert.rule == 'brute_force' and alert.source_ip:
+                    try:
+                        action_note = _maybe_block_ip(alert, session_id)
+                    except Exception as e:
+                        print(f"[Monitor {session_id}] Active response skipped: {e}")
+
                 ai_verdict = None
                 try:
                     from core.ai_triage import investigate
                     baseline_ctx = _baseline_summary(log_type, alert.username or alert.source_ip)
+                    if action_note:
+                        baseline_ctx = (baseline_ctx or "") + f"\n\nAutomated action already taken: {action_note}"
                     ai_verdict = investigate(alert, baseline_context=baseline_ctx)
                 except Exception as e:
                     print(f"[Monitor {session_id}] AI triage skipped: {e}")
@@ -544,6 +604,7 @@ def api_email_test():
 
 if __name__ == '__main__':
     init_db()
+    threading.Thread(target=_unblock_sweep, daemon=True).start()
     from waitress import serve
     print("\n  SentinelLog\n  http://127.0.0.1:5050\n  (running on waitress, not the Flask dev server)\n")
     serve(app, host='0.0.0.0', port=5050, threads=8)

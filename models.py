@@ -49,6 +49,21 @@ class EncryptedString(TypeDecorator):
             return value
 
 
+class IPBlock(db.Model):
+    """Audit trail of every automated block — active or expired."""
+    __tablename__ = 'ip_block'
+    id = db.Column(db.Integer, primary_key=True)
+    ip = db.Column(db.String(64), nullable=False)
+    session_id = db.Column(db.String(16))
+    alert_id = db.Column(db.String(64))
+    blocked_at = db.Column(db.String(40))
+    unblock_at = db.Column(db.String(40))
+    duration_seconds = db.Column(db.Integer)
+    block_count = db.Column(db.Integer, default=1)
+    active = db.Column(db.Boolean, default=True)
+    note = db.Column(db.Text, default='')
+
+
 class AdminUser(UserMixin, db.Model):
     """There's only ever one row in this table — the single dashboard login."""
     __tablename__ = 'admin_user'
