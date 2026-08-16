@@ -93,10 +93,11 @@ class MonitorSession(db.Model):
     server_ip = db.Column(db.String(100), default='')
     log_type = db.Column(db.String(20), default='auth')
     filepath = db.Column(db.String(500), default='')
-    mode = db.Column(db.String(20), default='replay')  # 'replay' or 'tail'
+    mode = db.Column(db.String(20), default='replay')  # 'replay', 'tail', or 'agent'
     delay = db.Column(db.Float, default=0.15)
     started_at = db.Column(db.String(40))
     running = db.Column(db.Boolean, default=False)
+    agent_key = db.Column(db.String(64), default='')  # remote-agent push auth token, 'agent' mode only
 
     # Alert channel credentials — encrypted at rest, see EncryptedString above
     telegram_token = db.Column(EncryptedString(500), default='')

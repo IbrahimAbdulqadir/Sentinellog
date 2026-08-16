@@ -7,7 +7,7 @@
   <div class="page-sub">Configure a log source to watch in real time</div>
 </div>
 
-<div style="display:grid;grid-template-columns:1fr 360px;gap:20px;max-width:900px">
+<div class="split-sidebar" style="--sidebar-w:360px;max-width:900px">
 
   <div>
     <div class="card mb-16">
@@ -25,7 +25,7 @@
 
       <div class="form-group" style="margin-bottom:0">
         <label class="form-label">Input mode</label>
-        <div class="grid-2" style="gap:12px;margin-top:8px">
+        <div class="grid-3" style="gap:12px;margin-top:8px">
           <div class="mode-card selected" id="modeReplay" onclick="selectMode('replay')">
             <div class="mode-icon"><i class="ti ti-player-play" aria-hidden="true"></i></div>
             <div class="mode-title">Replay sample log</div>
@@ -36,13 +36,18 @@
             <div class="mode-title">Tail real file</div>
             <div class="mode-desc">Watch a live log file path on this machine</div>
           </div>
+          <div class="mode-card" id="modeAgent" onclick="selectMode('agent')">
+            <div class="mode-icon"><i class="ti ti-server-bolt" aria-hidden="true"></i></div>
+            <div class="mode-title">Remote agent</div>
+            <div class="mode-desc">Push logs here from a server SentinelLog can't reach directly</div>
+          </div>
         </div>
       </div>
     </div>
 
     <div class="card mb-16">
       <div class="card-head"><span class="card-title">Log type</span></div>
-      <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:16px">
+      <div class="grid-3" style="gap:10px;margin-bottom:16px">
         <div class="mode-card selected" id="typeAuth" onclick="selectType('auth')">
           <div class="mode-icon"><i class="ti ti-lock" aria-hidden="true"></i></div>
           <div class="mode-title">SSH / Auth</div>
@@ -59,7 +64,7 @@
           <div class="mode-desc">Sudo logs — privilege escalation detection</div>
         </div>
       </div>
-      <label class="form-label">Log file path</label>
+      <label class="form-label" id="filepathLabel">Log file path</label>
       <input type="text" class="input" id="filepath" value="sample_logs/auth.log">
       <div class="form-hint mt-8" id="filepathHint">Bundled sample — brute force &amp; suspicious login detection</div>
     </div>
@@ -204,20 +209,31 @@ function selectMode(mode) {
   document.querySelectorAll('.mode-card').forEach(c => c.classList.remove('selected'));
   document.getElementById('mode' + mode.charAt(0).toUpperCase() + mode.slice(1)).classList.add('selected');
   currentMode = mode;
-  document.getElementById('summaryMode').textContent = mode === 'replay' ? 'Replay' : 'Live tail';
-  document.getElementById('summaryMode').className = `pill ${mode === 'replay' ? 'pill-blue' : 'pill-green'}`;
+  const modeLabels = { replay: 'Replay', tail: 'Live tail', agent: 'Remote agent' };
+  const modePills = { replay: 'pill-blue', tail: 'pill-green', agent: 'pill-amber' };
+  document.getElementById('summaryMode').textContent = modeLabels[mode];
+  document.getElementById('summaryMode').className = `pill ${modePills[mode]}`;
+
+  const label = document.getElementById('filepathLabel');
   const fp = document.getElementById('filepath');
   const hint = document.getElementById('filepathHint');
+  label.textContent = mode === 'agent' ? 'Log file path (on the remote server)' : 'Log file path';
+
   if (!userEditedPath) {
     if (mode === 'replay') {
       fp.value = 'sample_logs/auth.log';
       hint.textContent = 'Bundled sample — shows brute force + suspicious login detection';
+    } else if (mode === 'agent') {
+      fp.value = '/var/log/auth.log';
+      hint.textContent = "Path the agent will tail on the remote machine — this dashboard never opens it directly";
     } else {
       fp.value = '/var/log/auth.log';
       hint.textContent = 'Real log file on this machine — requires read permission';
     }
   } else {
-    hint.textContent = mode === 'replay' ? 'Replaying your chosen file from the top' : 'Watching your chosen file for new lines';
+    hint.textContent = mode === 'replay' ? 'Replaying your chosen file from the top'
+      : mode === 'agent' ? 'Path the agent will tail on the remote machine'
+      : 'Watching your chosen file for new lines';
   }
 }
 

@@ -21,10 +21,10 @@
 </div>
 {% endif %}
 
-<div style="display:grid;grid-template-columns:1fr 300px;gap:16px">
+<div class="split-sidebar" style="--sidebar-w:300px">
   <div>
-    <div class="card">
-      <div class="card-head"><span class="card-title">Raw log evidence</span></div>
+    <div class="term-frame">
+      <div class="term-head"><span class="card-title">Raw log evidence</span></div>
       <div class="terminal">
         {% for line in alert.evidence %}
         <div class="t-line"><span class="{{ 't-fail' if 'Failed' in line else ('t-ok' if 'Accepted' in line else 't-dim') }}">{{ line }}</span></div>

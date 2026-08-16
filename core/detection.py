@@ -359,5 +359,20 @@ class LogMonitor:
         )
         self._thread.start()
 
+    def consume(self, lines, assumed_year: int = None):
+        """
+        Process lines from any iterable/generator — not a local file. This is what lets
+        a remote agent's pushed lines run through the exact same parsing and detection
+        rules as a local tail/replay, instead of duplicating the logic.
+        """
+        self._running = True
+        try:
+            for line in lines:
+                if not self._running:
+                    break
+                self.process_line(line, assumed_year)
+        finally:
+            self._running = False
+
     def get_stats(self) -> dict:
         return dict(self.stats)

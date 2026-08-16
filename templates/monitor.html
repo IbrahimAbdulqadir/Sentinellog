@@ -2,10 +2,10 @@
 {% block title %}Monitor {{ session_id }} — SentinelLog{% endblock %}
 {% block topbar_actions %}
 <button class="btn btn-danger btn-sm" id="stopBtn" onclick="stopMonitor()" style="display:none">
-  <i class="ti ti-player-stop" aria-hidden="true"></i>Stop
+  <i class="ti ti-player-stop" aria-hidden="true"></i><span>Stop</span>
 </button>
 <button class="btn btn-primary btn-sm" id="resumeBtn" onclick="resumeMonitor()" style="display:none">
-  <i class="ti ti-player-play" aria-hidden="true"></i>Resume monitoring
+  <i class="ti ti-player-play" aria-hidden="true"></i><span>Resume monitoring</span>
 </button>
 {% endblock %}
 
@@ -21,6 +21,17 @@
   <span class="pill pill-blue" id="wLogType"></span>
   <span class="pill pill-amber" id="wMode"></span>
   <span class="pill pill-gray mono" id="wPath" style="max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"></span>
+</div>
+
+<div class="card mb-16" id="agentSetup" style="display:none">
+  <div class="card-head">
+    <span class="card-title" style="color:var(--cyan-text)">Remote agent setup</span>
+    <span class="pill pill-amber" id="agentWaitingPill">waiting for agent</span>
+  </div>
+  <div class="text-sm text-muted mb-12">Run this on the remote server to start forwarding <span class="mono" id="agentFilePath"></span> here. It needs nothing but <span class="mono">python3</span> — no install step.</div>
+  <div style="background:var(--terminal-well);border-radius:10px;padding:12px 14px;font-family:var(--mono);font-size:12px;color:var(--text-secondary);overflow-x:auto;white-space:pre" id="agentCommand"></div>
+  <button class="btn btn-ghost btn-sm mt-12" onclick="copyAgentCommand()"><i class="ti ti-copy" aria-hidden="true"></i> Copy command</button>
+  <div class="form-hint mt-8">The agent key above only appears here — if you lose it, resume this monitor to generate a new one.</div>
 </div>
 
 <div class="metrics mb-16">
@@ -42,10 +53,10 @@
   </div>
 </div>
 
-<div style="display:grid;grid-template-columns:1fr 340px;gap:16px">
+<div class="split-sidebar" style="--sidebar-w:340px">
   <div>
-    <div class="card">
-      <div class="card-head">
+    <div class="term-frame">
+      <div class="term-head">
         <span class="card-title">Live log feed</span>
         <span class="pill pill-blue" id="feedPill">● connecting</span>
       </div>
@@ -81,8 +92,17 @@ let firstLog = true;
 
 function ts() { return new Date().toTimeString().slice(0,8); }
 
+function copyAgentCommand() {
+  navigator.clipboard.writeText(document.getElementById('agentCommand').textContent);
+}
+
 function addLog(cls, text) {
-  if (firstLog) { terminal.innerHTML = ''; firstLog = false; }
+  if (firstLog) {
+    terminal.innerHTML = '';
+    firstLog = false;
+    const pill = document.getElementById('agentWaitingPill');
+    if (pill) { pill.textContent = 'receiving data'; pill.className = 'pill pill-green'; }
+  }
   const line = document.createElement('div');
   line.className = 't-line';
   line.innerHTML = `<span class="t-ts">${ts()}</span><span class="${cls}"> ${text}</span>`;
@@ -129,11 +149,19 @@ fetch('/api/monitor/{{ session_id }}/status')
     }
     if (d.filepath) {
       const typeLabels = {auth: 'SSH / Auth', nginx: 'Web Server', sudo: 'Sudo / Privilege'};
+      const modeLabels = {tail: '● Tailing (live)', agent: '⇢ Remote agent', replay: '▶ Replaying'};
       document.getElementById('wLogType').textContent = typeLabels[d.log_type] || d.log_type;
-      document.getElementById('wMode').textContent = d.mode === 'tail' ? '● Tailing (live)' : '▶ Replaying';
+      document.getElementById('wMode').textContent = modeLabels[d.mode] || d.mode;
       document.getElementById('wPath').textContent = d.filepath;
       document.getElementById('wPath').title = d.filepath;
       document.getElementById('watchedBar').style.display = 'flex';
+    }
+
+    if (d.mode === 'agent' && d.agent_key) {
+      document.getElementById('agentFilePath').textContent = d.filepath;
+      document.getElementById('agentCommand').textContent =
+        `curl -o sentinel_agent.py ${window.location.origin}/static/agent/sentinel_agent.py && python3 sentinel_agent.py --url ${window.location.origin} --session {{ session_id }} --key ${d.agent_key} --file ${d.filepath}`;
+      document.getElementById('agentSetup').style.display = 'block';
     }
 
     // Real saved stats, not zeros — this is the actual fix for "doesn't remember previous session"
@@ -253,7 +281,7 @@ async function resumeMonitor() {
     window.location = `/monitor/${d.session_id}`;
   } else {
     btn.disabled = false;
-    btn.innerHTML = '<i class="ti ti-player-play"></i> Resume monitoring';
+    btn.innerHTML = '<i class="ti ti-player-play"></i><span>Resume monitoring</span>';
     alert('Could not resume: ' + (d.error || 'unknown error'));
   }
 }

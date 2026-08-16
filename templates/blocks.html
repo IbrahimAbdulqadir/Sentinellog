@@ -12,13 +12,13 @@
 {% if blocks %}
 <div style="display:flex;flex-direction:column;gap:10px">
   {% for b in blocks %}
-  <div class="card">
+  <div class="card card-row">
     <div style="display:flex;align-items:flex-start;gap:14px">
       <div class="alert-icon {{ 'crit' if b.active else 'warn' }}" style="margin-top:2px">
         <i class="ti {{ 'ti-ban' if b.active else 'ti-clock-off' }}" aria-hidden="true"></i>
       </div>
       <div style="flex:1">
-        <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px">
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px;flex-wrap:wrap">
           <span style="font-size:14px;font-weight:500;font-family:var(--mono);color:var(--text)">{{ b.ip }}</span>
           <span class="pill {{ 'pill-red' if b.active else 'pill-blue' }}">{{ 'active' if b.active else 'expired' }}</span>
           {% if b.block_count and b.block_count > 1 %}
@@ -33,7 +33,7 @@
           <span><i class="ti ti-hourglass" style="font-size:12px" aria-hidden="true"></i> {{ (b.duration_seconds // 60) }} min</span>
           {% endif %}
           {% if b.alert_id %}
-          <a href="/alerts/{{ b.alert_id }}" style="color:var(--accent);text-decoration:none"><i class="ti ti-link" style="font-size:12px" aria-hidden="true"></i> triggering alert</a>
+          <a href="/alerts/{{ b.alert_id }}" style="color:var(--cyan);text-decoration:none"><i class="ti ti-link" style="font-size:12px" aria-hidden="true"></i> triggering alert</a>
           {% endif %}
         </div>
       </div>

@@ -35,7 +35,7 @@
 <div class="row-2 mb-16">
   <div class="card">
     <div class="card-head">
-      <span class="card-title">Recent alerts</span>
+      <span class="card-title" style="color:var(--green-text)">Recent alerts</span>
       <a href="/alerts" class="card-link">View all →</a>
     </div>
     <div id="recentAlerts">
@@ -49,28 +49,26 @@
 
   <div class="card">
     <div class="card-head">
-      <span class="card-title">Monitor sessions</span>
+      <span class="card-title" style="color:var(--cyan-text)">Monitor sessions</span>
       <a href="/monitor/new" class="card-link">+ New</a>
     </div>
     <div id="sessionsList">
       <div class="empty-state">
         <div class="empty-state-icon"><i class="ti ti-server-off" aria-hidden="true"></i></div>
         <div class="empty-state-title">No active monitors</div>
-        <div class="empty-state-text"><a href="/monitor/new" style="color:var(--accent)">Start your first monitor</a></div>
+        <div class="empty-state-text"><a href="/monitor/new">Start your first monitor</a></div>
       </div>
     </div>
   </div>
 </div>
 
-<div class="card">
-  <div class="card-head">
+<div class="term-frame">
+  <div class="term-head">
     <span class="card-title">Live event feed</span>
-    <span class="pill pill-green" id="feedStatus">● waiting</span>
+    <span style="display:flex;align-items:center;gap:6px;font-size:11px;font-weight:600;color:var(--green)" id="feedStatus"><span style="width:6px;height:6px;border-radius:50%;background:var(--green);animation:slPulse 2s infinite"></span>waiting</span>
   </div>
-  <div id="liveFeed">
-    <div style="text-align:center;padding:24px;color:var(--text-muted);font-size:13px">
-      Start a monitor session to see events here in real time.
-    </div>
+  <div class="terminal" id="liveFeed">
+    <div class="t-line"><span class="t-dim">Start a monitor session to see events here in real time.</span></div>
   </div>
 </div>
 {% endblock %}
@@ -140,7 +138,7 @@ async function loadDashboard() {
 function connectFeed(sessionId) {
   if (activeEventSource) return;
   activeEventSource = new EventSource(`/api/monitor/${sessionId}/stream`);
-  document.getElementById('feedStatus').textContent = '● streaming';
+  document.getElementById('feedStatus').lastChild.textContent = 'streaming';
 
   activeEventSource.addEventListener('log_event', e => {
     const d = JSON.parse(e.data);
@@ -148,16 +146,15 @@ function connectFeed(sessionId) {
     if (feedFirstEvent) { feed.innerHTML = ''; feedFirstEvent = false; }
 
     const row = document.createElement('div');
-    row.className = 'feed-item';
+    row.className = 't-line alert-arrive';
     const isOk = d.event_type === 'auth_success';
-    const cls = isOk ? 'g' : 'r';
+    const cls = isOk ? 't-ok' : 't-fail';
     const tag = isOk ? 'OK' : 'FAIL';
     const user = d.username || '?';
     const ip = d.source_ip || '';
     row.innerHTML = `
-      <div class="fd ${cls}"></div>
-      <span class="feed-text">${tag} · ${user}${ip ? '@'+ip : ''} — ${d.raw_line.split(':').slice(-1)[0].trim().slice(0,60)}</span>
-      <span class="feed-time">${new Date(d.timestamp).toTimeString().slice(0,8)}</span>
+      <span class="t-ts">${new Date(d.timestamp).toTimeString().slice(0,8)}</span>
+      <span class="${cls}">${tag} · ${user}${ip ? '@'+ip : ''} — ${d.raw_line.split(':').slice(-1)[0].trim().slice(0,60)}</span>
     `;
     feed.insertBefore(row, feed.firstChild);
     while (feed.children.length > 30) feed.removeChild(feed.lastChild);
@@ -167,11 +164,10 @@ function connectFeed(sessionId) {
     const a = JSON.parse(e.data);
     const feed = document.getElementById('liveFeed');
     const row = document.createElement('div');
-    row.className = 'feed-item';
+    row.className = 't-line alert-arrive';
     row.innerHTML = `
-      <div class="fd a"></div>
-      <span class="feed-text" style="color:var(--yellow);font-weight:500">ALERT · ${a.title}</span>
-      <span class="feed-time">${new Date(a.timestamp).toTimeString().slice(0,8)}</span>
+      <span class="t-ts">${new Date(a.timestamp).toTimeString().slice(0,8)}</span>
+      <span class="t-alert">ALERT · ${a.title}</span>
     `;
     feed.insertBefore(row, feed.firstChild);
     loadDashboard();

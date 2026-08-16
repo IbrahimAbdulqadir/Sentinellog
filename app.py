@@ -1,7 +1,7 @@
 """
 SentinelLog - Flask Application
 """
-import os, json, uuid, queue, threading, time
+import os, json, uuid, queue, threading, time, secrets, hmac
 from datetime import datetime, timedelta
 from dataclasses import asdict
 from dotenv import load_dotenv
@@ -45,6 +45,15 @@ def load_user(user_id):
 def init_db():
     with app.app_context():
         db.create_all()
+        # Lightweight migration: create_all() only creates missing tables, it never
+        # alters an existing one — so a column added after the .db file already
+        # exists (like agent_key) needs to be bolted on by hand, once, here.
+        existing_cols = {row[1] for row in db.session.execute(
+            db.text("PRAGMA table_info(monitor_session)")
+        )}
+        if 'agent_key' not in existing_cols:
+            db.session.execute(db.text("ALTER TABLE monitor_session ADD COLUMN agent_key VARCHAR(64) DEFAULT ''"))
+            db.session.commit()
         if not AdminUser.query.first():
             username = os.environ.get('ADMIN_USERNAME', 'admin')
             password = os.environ.get('ADMIN_PASSWORD', 'change-me')
@@ -229,6 +238,23 @@ def iter_log_lines(filepath, mode, delay, is_running):
                 time.sleep(delay)
 
 
+def iter_agent_lines(session_id, is_running):
+    """
+    Yields lines pushed by a remote agent via POST /api/ingest/<session_id>, instead
+    of reading a local file. Blocks on the session's ingest queue between pushes so
+    this drops into the exact same processing loop as a local tail/replay.
+    """
+    while is_running():
+        stream = active_streams.get(session_id)
+        if not stream:
+            break
+        try:
+            line = stream['ingest_queue'].get(timeout=1.0)
+        except queue.Empty:
+            continue
+        yield line
+
+
 # ─── Monitor control API ────────────────────────────────────────────────────
 
 @app.route('/api/monitor/start', methods=['POST'])
@@ -245,6 +271,9 @@ def _start_monitor_session(data):
     session_id = str(uuid.uuid4())[:8]
     q = queue.Queue()
     ready = threading.Event()
+    mode = data.get('mode', 'replay')
+    is_agent = mode == 'agent'
+    agent_key = secrets.token_hex(20) if is_agent else ''
 
     sess_row = MonitorSession(
         id=session_id,
@@ -252,10 +281,11 @@ def _start_monitor_session(data):
         server_ip=data.get('server_ip', ''),
         log_type=data.get('log_type', 'auth'),
         filepath=data.get('filepath', 'sample_logs/auth.log'),
-        mode=data.get('mode', 'replay'),
+        mode=mode,
         delay=float(data.get('delay', 0.15)),
         started_at=datetime.now().isoformat(),
         running=False,
+        agent_key=agent_key,
         telegram_token=data.get('telegram_token', ''),
         telegram_chat_id=data.get('telegram_chat_id', ''),
         email_username=data.get('email_username', ''),
@@ -265,25 +295,32 @@ def _start_monitor_session(data):
     db.session.add(sess_row)
     db.session.commit()
 
-    active_streams[session_id] = {'queue': q, 'ready': ready, 'running': False, 'connected': False}
+    active_streams[session_id] = {
+        'queue': q, 'ready': ready, 'running': False, 'connected': is_agent,
+        'ingest_queue': queue.Queue() if is_agent else None,
+    }
 
     def is_running():
         return active_streams.get(session_id, {}).get('running', False)
 
     def worker():
-        ready.wait(timeout=30)
-        if not active_streams.get(session_id, {}).get('connected', False):
-            # Either nobody connected within 30s, or a Stop request woke this up early
-            # before anyone ever did — either way, there's nothing to process. Clean up
-            # so this correctly shows as historical instead of looking connectable forever.
-            active_streams.pop(session_id, None)
-            with app.app_context():
-                row = db.session.get(MonitorSession, session_id)
-                if row:
-                    row.running = False
-                    db.session.commit()
-            return
-        time.sleep(0.3)
+        # A remote agent pushes lines whenever it wants, independent of whether anyone
+        # has the dashboard open — unlike replay/tail, there's no local file sitting
+        # around to read whenever a browser eventually connects, so don't gate on that.
+        if not is_agent:
+            ready.wait(timeout=30)
+            if not active_streams.get(session_id, {}).get('connected', False):
+                # Either nobody connected within 30s, or a Stop request woke this up early
+                # before anyone ever did — either way, there's nothing to process. Clean up
+                # so this correctly shows as historical instead of looking connectable forever.
+                active_streams.pop(session_id, None)
+                with app.app_context():
+                    row = db.session.get(MonitorSession, session_id)
+                    if row:
+                        row.running = False
+                        db.session.commit()
+                return
+            time.sleep(0.3)
 
         with app.app_context():
             row = db.session.get(MonitorSession, session_id)
@@ -380,7 +417,9 @@ def _start_monitor_session(data):
 
                     monitor.event_callback = on_event
                     monitor.alert_callback = put_alert
-                    if mode == 'tail':
+                    if mode == 'agent':
+                        monitor.consume(iter_agent_lines(session_id, is_running), assumed_year=2026)
+                    elif mode == 'tail':
                         monitor.tail_file(filepath, poll_interval=1.0, should_continue=is_running)
                     else:
                         monitor.replay_file(filepath, delay=delay, assumed_year=2026, should_continue=is_running)
@@ -388,7 +427,9 @@ def _start_monitor_session(data):
                 elif log_type == 'nginx':
                     d404 = NotFoundFloodDetector(threshold=20, window_seconds=60)
                     dtrav = DirectoryTraversalDetector()
-                    for line in iter_log_lines(filepath, mode, delay, is_running):
+                    lines_source = iter_agent_lines(session_id, is_running) if mode == 'agent' \
+                        else iter_log_lines(filepath, mode, delay, is_running)
+                    for line in lines_source:
                         row.lines_processed += 1
                         event = parse_nginx_line(line, 2026)
                         if event:
@@ -411,7 +452,9 @@ def _start_monitor_session(data):
 
                 elif log_type == 'sudo':
                     dpriv = PrivilegeEscalationDetector()
-                    for line in iter_log_lines(filepath, mode, delay, is_running):
+                    lines_source = iter_agent_lines(session_id, is_running) if mode == 'agent' \
+                        else iter_log_lines(filepath, mode, delay, is_running)
+                    for line in lines_source:
                         row.lines_processed += 1
                         event = parse_sudo_line(line, 2026)
                         if event:
@@ -462,7 +505,41 @@ def _start_monitor_session(data):
                 active_streams.pop(session_id, None)
 
     threading.Thread(target=worker, daemon=True).start()
-    return {'session_id': session_id, 'status': 'started'}
+    result = {'session_id': session_id, 'status': 'started'}
+    if is_agent:
+        result['agent_key'] = agent_key
+    return result
+
+
+@app.route('/api/ingest/<session_id>', methods=['POST'])
+def api_ingest(session_id):
+    """
+    Where a remote agent pushes log lines from a server this box never opens a file
+    on directly. Deliberately not @login_required — an unattended agent on another
+    machine can't hold a browser session — auth is the per-session agent_key instead,
+    generated once when the session was started in 'agent' mode and shown to the admin.
+    """
+    row = db.session.get(MonitorSession, session_id)
+    if not row or row.mode != 'agent':
+        return jsonify({'error': 'Unknown agent session'}), 404
+
+    supplied = request.headers.get('X-Agent-Key', '')
+    if not row.agent_key or not hmac.compare_digest(supplied, row.agent_key):
+        return jsonify({'error': 'Invalid agent key'}), 403
+
+    stream = active_streams.get(session_id)
+    if not stream or not stream.get('ingest_queue'):
+        return jsonify({'error': 'Session is not currently accepting lines — start a new monitor'}), 409
+
+    lines = (request.json or {}).get('lines') or []
+    if not isinstance(lines, list):
+        return jsonify({'error': 'lines must be a list of strings'}), 400
+    lines = [str(l) for l in lines[:1000]]  # cap a single batch — an agent should send small, frequent batches
+
+    for line in lines:
+        stream['ingest_queue'].put(line)
+
+    return jsonify({'accepted': len(lines)})
 
 
 @app.route('/api/monitor/<session_id>/resume', methods=['POST'])
@@ -562,7 +639,9 @@ def api_monitor_status(session_id):
         # True the instant a session is created, even before its first byte is processed —
         # this is what should gate "try to connect", not `running`, which only flips true
         # AFTER something connects. Gating on `running` was a chicken-and-egg deadlock.
-        'live_available': session_id in active_streams
+        'live_available': session_id in active_streams,
+        'agent_key': row.agent_key if row.mode == 'agent' else None,
+        'ingest_url': url_for('api_ingest', session_id=session_id, _external=True) if row.mode == 'agent' else None,
     })
 
 @app.route('/api/sessions')

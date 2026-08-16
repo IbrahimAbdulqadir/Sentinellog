@@ -2,49 +2,99 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Sign in — SentinelLog</title>
-  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@600;700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@600;700;800&family=Source+Sans+3:wght@400;500;600;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@latest/tabler-icons.min.css">
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
     body {
-      background: #0B0E14; color: #F5F1E8; font-family: 'Inter', sans-serif;
-      min-height: 100vh; display: flex; align-items: center; justify-content: center;
+      background: #0B0D12; color: #EDEFF3; font-family: 'Source Sans 3', sans-serif;
+      min-height: 100vh; position: relative; overflow-x: hidden;
     }
-    .box { width: 100%; max-width: 360px; padding: 32px; }
-    .brand { display: flex; align-items: center; gap: 10px; justify-content: center; margin-bottom: 28px; }
-    .brand-icon { width: 34px; height: 34px; border-radius: 10px; background: linear-gradient(135deg, #FFB238, #14B8A6); display: flex; align-items: center; justify-content: center; }
-    .brand-icon i { font-size: 17px; color: #0B0E14; }
-    .brand-name { font-family: 'Space Grotesk', sans-serif; font-size: 19px; font-weight: 700; }
-    .card { background: #161C27; border: 1px solid rgba(255,255,255,.1); border-radius: 16px; padding: 26px; }
+    .grid-floor { position: fixed; inset: 0; z-index: 0; overflow: hidden; pointer-events: none; }
+    .grid-floor .plane {
+      position: absolute; left: -20%; right: -20%; bottom: -30%; height: 75%;
+      transform: perspective(700px) rotateX(58deg);
+      background-image:
+        linear-gradient(30deg, rgba(74,222,156,.14) 1px, transparent 1px),
+        linear-gradient(-30deg, rgba(79,195,232,.12) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(255,255,255,.05) 1px, transparent 1px);
+      background-size: 64px 110px, 64px 110px, 64px 110px;
+      -webkit-mask-image: linear-gradient(to top, rgba(0,0,0,.9), transparent);
+      mask-image: linear-gradient(to top, rgba(0,0,0,.9), transparent);
+    }
+    .grid-floor .glow {
+      position: absolute; inset: 0;
+      background: radial-gradient(circle at 20% 10%, rgba(74,222,156,.06), transparent 45%),
+                  radial-gradient(circle at 85% 25%, rgba(79,195,232,.06), transparent 45%);
+    }
+    .wrap { min-height: 100vh; display: flex; align-items: center; justify-content: center; position: relative; z-index: 1; padding: 32px; }
+    .split { display: flex; align-items: center; gap: 60px; flex-wrap: wrap; justify-content: center; }
+
+    .logo { position: relative; flex-shrink: 0; perspective: 800px; width: 170px; height: 170px; }
+    .logo .spin { width: 100%; height: 100%; position: relative; transform-style: preserve-3d; animation: slSpin 5s ease-in-out infinite; }
+    .logo .back { position: absolute; inset: 0; border-radius: 50%; background: #0D5A3F; transform: translateZ(-10px); box-shadow: 0 0 0 6px #17703F; }
+    .logo .front { position: absolute; inset: 0; border-radius: 50%; background: radial-gradient(circle at 35% 30%, #8CF4C7, #4ADE9C 65%); transform: translateZ(14px); display: flex; align-items: center; justify-content: center; box-shadow: inset 0 -10px 24px rgba(0,0,0,.18), 0 0 0 6px #1F8F63; }
+    .logo .front i { font-size: 64px; color: #0B0D12; }
+    @keyframes slSpin { 0%,100% { transform: rotateY(-32deg) rotateX(6deg); } 50% { transform: rotateY(32deg) rotateX(-6deg); } }
+    @media (prefers-reduced-motion: reduce) { .logo .spin { animation: none; } }
+
+    .brand { display: flex; align-items: center; gap: 10px; margin-bottom: 30px; }
+    .brand-icon { position: relative; width: 32px; height: 32px; perspective: 300px; flex-shrink: 0; }
+    .brand-icon .spin { width: 100%; height: 100%; position: relative; transform-style: preserve-3d; animation: slSpin 5s ease-in-out infinite; }
+    .brand-icon .back { position: absolute; inset: 0; border-radius: 50%; background: #0D5A3F; transform: translateZ(-4px); box-shadow: 0 0 0 3px #17703F; }
+    .brand-icon .front { position: absolute; inset: 0; border-radius: 50%; background: radial-gradient(circle at 35% 30%, #8CF4C7, #4ADE9C 65%); transform: translateZ(6px); display: flex; align-items: center; justify-content: center; box-shadow: 0 0 0 3px #1F8F63; }
+    .brand-icon .front i { font-size: 13px; color: #0B0D12; }
+    .brand-name { font-family: 'Outfit', sans-serif; font-size: 20px; font-weight: 700; letter-spacing: -.02em; }
+
+    .card { background: #151922; border: 1px solid rgba(255,255,255,.08); border-radius: 16px; padding: 30px; width: min(340px, 100%); box-sizing: border-box; box-shadow: 8px 8px 0 #05060A, 16px 16px 0 #020304, 0 30px 60px rgba(0,0,0,.5); }
+    .card-label { font-family: 'Outfit', sans-serif; font-size: 12px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: #8A8F9C; margin-bottom: 20px; }
     .field { margin-bottom: 16px; }
-    label { display: block; font-size: 11px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: #9C948A; margin-bottom: 7px; }
-    input { width: 100%; background: #1B2230; border: 1px solid rgba(255,255,255,.1); border-radius: 10px; color: #F5F1E8; font-size: 14px; padding: 11px 13px; outline: none; }
-    input:focus { border-color: #14B8A6; }
-    button { width: 100%; background: #FFB238; color: #181410; border: none; border-radius: 10px; padding: 12px; font-size: 13px; font-weight: 700; cursor: pointer; margin-top: 6px; }
-    button:hover { background: #C97E17; color: #fff; }
-    .error { background: rgba(226,72,58,.15); color: #FF9C8C; border: 1px solid rgba(226,72,58,.3); border-radius: 10px; padding: 10px 13px; font-size: 12.5px; margin-bottom: 16px; }
+    label { display: block; font-size: 11px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: #8A8F9C; margin-bottom: 7px; }
+    input { width: 100%; background: #1C212C; border: 1px solid rgba(255,255,255,.08); border-radius: 10px; color: #EDEFF3; font-size: 14px; padding: 11px 13px; outline: none; font-family: 'Source Sans 3', sans-serif; }
+    input:focus { border-color: #4FC3E8; }
+    button { width: 100%; background: #4ADE9C; color: #0B0D12; border: none; border-radius: 10px; padding: 13px; font-size: 13px; font-weight: 700; cursor: pointer; margin-top: 6px; font-family: 'Outfit', sans-serif; letter-spacing: .01em; }
+    button:hover { background: #1F8F63; color: #fff; }
+    .error { background: rgba(240,86,74,.15); color: #FF9C8C; border: 1px solid rgba(240,86,74,.3); border-radius: 10px; padding: 10px 13px; font-size: 12.5px; margin-bottom: 16px; }
+
+    @media (max-width: 560px) { .logo { display: none; } }
+    @media (max-width: 400px) {
+      .wrap { padding: 16px; }
+      .card { padding: 22px; }
+    }
   </style>
 </head>
 <body>
-  <div class="box">
-    <div class="brand">
-      <div class="brand-icon"><i class="ti ti-shield-check" aria-hidden="true"></i></div>
-      <span class="brand-name">SentinelLog</span>
-    </div>
-    <div class="card">
-      {% if error %}<div class="error">{{ error }}</div>{% endif %}
-      <form method="POST">
-        <div class="field">
-          <label>Username</label>
-          <input type="text" name="username" autofocus required>
+  <div class="grid-floor" aria-hidden="true"><div class="plane"></div><div class="glow"></div></div>
+
+  <div class="wrap">
+    <div class="split">
+      <div class="logo"><div class="spin"><div class="back"></div><div class="front"><i class="ti ti-shield-check" aria-hidden="true"></i></div></div></div>
+
+      <div>
+        <div class="brand">
+          <div class="brand-icon"><div class="spin"><div class="back"></div><div class="front"><i class="ti ti-shield-check" aria-hidden="true"></i></div></div></div>
+          <span class="brand-name">SentinelLog</span>
         </div>
-        <div class="field">
-          <label>Password</label>
-          <input type="password" name="password" required>
+        <div class="card">
+          <div class="card-label">Sign in</div>
+          {% if error %}<div class="error">{{ error }}</div>{% endif %}
+          <form method="POST">
+            <div class="field">
+              <label>Username</label>
+              <input type="text" name="username" autofocus required>
+            </div>
+            <div class="field">
+              <label>Password</label>
+              <input type="password" name="password" required>
+            </div>
+            <button type="submit">Sign in</button>
+          </form>
         </div>
-        <button type="submit">Sign in</button>
-      </form>
+      </div>
     </div>
   </div>
 </body>
