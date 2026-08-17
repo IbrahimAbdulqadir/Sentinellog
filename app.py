@@ -378,11 +378,19 @@ def _start_monitor_session(data):
                             'source_ip': event.source_ip,
                             'raw_line': event.raw_line
                         })
-                    else:  # sudo
+                    elif kind == 'sudo':
                         put('log_event', {
                             'timestamp': event['timestamp'].isoformat(),
                             'event_type': 'sudo',
                             'username': event.get('user'),
+                            'source_ip': None,
+                            'raw_line': event.get('raw_line', '')
+                        })
+                    else:  # su
+                        put('log_event', {
+                            'timestamp': event['timestamp'].isoformat(),
+                            'event_type': 'su_' + event.get('outcome', 'attempt'),
+                            'username': event.get('actor'),
                             'source_ip': None,
                             'raw_line': event.get('raw_line', '')
                         })

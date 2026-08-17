@@ -28,6 +28,19 @@ SUDO_PATTERN = re.compile(
     r'\S+\s+sudo:\s+(?P<user>\S+)\s+:.*COMMAND=(?P<command>.+)$'
 )
 
+# su (account switch) log formats — PAM logs a successful switch as a session-open
+# line, and util-linux's su itself logs a rejected one as "FAILED SU". Both name
+# actor and target explicitly, which is exactly what a horizontal-movement check
+# (one account assuming another's identity) needs.
+SU_SUCCESS_PATTERN = re.compile(
+    r'(?P<month>\w{3})\s+(?P<day>\d+)\s+(?P<time>\d{2}:\d{2}:\d{2})\s+\S+\s+su(?:\[\d+\])?:\s+'
+    r'pam_unix\(su(?:-l)?:session\):\s+session opened for user (?P<target>\S+)\(uid=\d+\) by (?P<actor>\S+)\(uid=\d+\)'
+)
+SU_FAILURE_PATTERN = re.compile(
+    r'(?P<month>\w{3})\s+(?P<day>\d+)\s+(?P<time>\d{2}:\d{2}:\d{2})\s+\S+\s+su(?:\[\d+\])?:\s+'
+    r'FAILED SU \(to (?P<target>\S+)\) (?P<actor>\S+) on'
+)
+
 MONTH_MAP = {
     'Jan':1,'Feb':2,'Mar':3,'Apr':4,'May':5,'Jun':6,
     'Jul':7,'Aug':8,'Sep':9,'Oct':10,'Nov':11,'Dec':12
@@ -127,6 +140,40 @@ def parse_sudo_line(line: str, assumed_year: int = None) -> Optional[dict]:
         'user': g['user'],
         'command': g['command'].strip(),
         'raw_line': line
+    }
+
+
+def parse_su_line(line: str, assumed_year: int = None) -> Optional[dict]:
+    """Parses either a successful or a rejected `su` (account switch) attempt."""
+    line = line.strip()
+    if not line:
+        return None
+
+    match = SU_SUCCESS_PATTERN.search(line)
+    outcome = 'success'
+    if not match:
+        match = SU_FAILURE_PATTERN.search(line)
+        outcome = 'failure'
+    if not match:
+        return None
+
+    g = match.groupdict()
+    year = assumed_year or datetime.now().year
+    month = MONTH_MAP.get(g['month'], 1)
+
+    try:
+        ts = datetime.strptime(
+            f"{year}-{month}-{g['day'].strip()} {g['time']}", "%Y-%m-%d %H:%M:%S"
+        )
+    except Exception:
+        ts = datetime.now()
+
+    return {
+        'timestamp': ts,
+        'actor': g['actor'],
+        'target': g['target'],
+        'outcome': outcome,
+        'raw_line': line,
     }
 
 
@@ -260,6 +307,58 @@ class PrivilegeEscalationDetector:
             description=f"Privilege escalation detected: {', '.join(reason)}",
             source_ip=None,
             username=user,
+            event_count=1,
+            first_seen=ts.isoformat(),
+            last_seen=ts.isoformat(),
+            timestamp=datetime.utcnow().isoformat(),
+            evidence=[event.get('raw_line', '')]
+        )
+
+
+class AccountSwitchDetector:
+    """
+    Detects su (account switch) attempts by an untrusted identity — one account
+    directly assuming another's session rather than going through sudo. This is
+    the horizontal-movement counterpart to PrivilegeEscalationDetector's vertical
+    one: sudo runs a single command as another user, su hands over the whole
+    session, so it's flagged as its own rule rather than folded into that one.
+    """
+
+    def __init__(self):
+        self.seen: set = set()
+
+    def process_event(self, event: dict) -> Optional[Alert]:
+        if not event:
+            return None
+
+        actor = event.get('actor', '')
+        target = event.get('target', '')
+        outcome = event.get('outcome', '')
+        ts = event.get('timestamp', datetime.utcnow())
+
+        if actor in TRUSTED_SUDO_USERS:
+            return None
+
+        key = f"{actor}:{target}:{outcome}"
+        if key in self.seen:
+            return None
+        self.seen.add(key)
+
+        succeeded = outcome == 'success'
+        severity = 'critical' if succeeded else 'high'
+        verb = 'switched into' if succeeded else 'tried to switch into (denied)'
+
+        return Alert(
+            id=f"acctsw_{actor}_{int(ts.timestamp())}_{uuid.uuid4().hex[:6]}",
+            rule='lateral_movement',
+            severity=severity,
+            title=f"Account switch — {actor} {'became' if succeeded else 'tried to become'} {target}",
+            description=(
+                f"'{actor}' {verb} the '{target}' account via su, "
+                f"bypassing sudo's per-command trail entirely."
+            ),
+            source_ip=None,
+            username=actor,
             event_count=1,
             first_seen=ts.isoformat(),
             last_seen=ts.isoformat(),

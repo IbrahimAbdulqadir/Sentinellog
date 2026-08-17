@@ -61,7 +61,7 @@
     </div>
 
     <div class="card">
-      <div class="card-head"><span class="card-title">Detection rules</span><span class="pill pill-blue">6 active — always on</span></div>
+      <div class="card-head"><span class="card-title">Detection rules</span><span class="pill pill-blue">7 active — always on</span></div>
       <div id="rulesList">
         <div class="alert-item">
           <div class="alert-icon crit"><i class="ti ti-alert-triangle" aria-hidden="true"></i></div>
@@ -76,6 +76,11 @@
         <div class="alert-item">
           <div class="alert-icon crit"><i class="ti ti-shield-x" aria-hidden="true"></i></div>
           <div><div class="alert-title">Privilege escalation</div><div class="alert-desc">Unexpected user or dangerous command via sudo</div></div>
+          <span class="pill pill-red" style="margin-left:auto">active</span>
+        </div>
+        <div class="alert-item">
+          <div class="alert-icon crit"><i class="ti ti-user-exclamation" aria-hidden="true"></i></div>
+          <div><div class="alert-title">Lateral movement</div><div class="alert-desc">Untrusted account switching identity via su, granted or denied</div></div>
           <span class="pill pill-red" style="margin-left:auto">active</span>
         </div>
         <div class="alert-item">
@@ -112,7 +117,7 @@
           </div>
           <div class="flex-between">
             <span class="text-sm text-muted">Rules</span>
-            <span class="text-sm">6 active</span>
+            <span class="text-sm">7 active</span>
           </div>
           <div class="flex-between">
             <span class="text-sm text-muted">Sources</span>

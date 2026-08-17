@@ -47,9 +47,12 @@ class Alert:
 # ─── Log Line Parser ───────────────────────────────────────────────────────────
 
 # Matches: "Jan 15 02:14:01 webserver sshd[12453]: Failed password for root from 1.2.3.4 port 51234 ssh2"
+# process allows hyphens because modern OpenSSH (9.6+, current Debian/Kali) forks a
+# per-connection handler literally named "sshd-session" that does the actual logging,
+# not "sshd" itself — a bare \w+ can't match the hyphen and silently drops every line.
 LOG_LINE_PATTERN = re.compile(
     r'^(?P<month>\w{3})\s+(?P<day>\d{1,2})\s+(?P<time>\d{2}:\d{2}:\d{2})\s+'
-    r'(?P<hostname>\S+)\s+(?P<process>\w+)\[(?P<pid>\d+)\]:\s+(?P<message>.*)$'
+    r'(?P<hostname>\S+)\s+(?P<process>[\w-]+)\[(?P<pid>\d+)\]:\s+(?P<message>.*)$'
 )
 
 FAILED_PASSWORD_PATTERN = re.compile(
