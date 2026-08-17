@@ -148,12 +148,12 @@ fetch('/api/monitor/{{ session_id }}/status')
         `Monitor — <span style="color:var(--accent)">${d.target_name}</span>`;
     }
     if (d.filepath) {
-      const typeLabels = {auth: 'SSH / Auth', nginx: 'Web Server', sudo: 'Sudo / Privilege'};
       const modeLabels = {tail: '● Tailing (live)', agent: '⇢ Remote agent', replay: '▶ Replaying'};
-      document.getElementById('wLogType').textContent = typeLabels[d.log_type] || d.log_type;
+      const sources = d.filepath.split('\n').filter(Boolean);
+      document.getElementById('wLogType').textContent = 'All rules · ' + sources.length + (sources.length === 1 ? ' source' : ' sources');
       document.getElementById('wMode').textContent = modeLabels[d.mode] || d.mode;
-      document.getElementById('wPath').textContent = d.filepath;
-      document.getElementById('wPath').title = d.filepath;
+      document.getElementById('wPath').textContent = sources.join('  +  ');
+      document.getElementById('wPath').title = sources.join('\n');
       document.getElementById('watchedBar').style.display = 'flex';
     }
 

@@ -9,11 +9,7 @@ from flask import Flask, render_template, request, jsonify, Response, stream_wit
 from flask_login import LoginManager, login_user, logout_user, login_required, current_user
 from werkzeug.security import generate_password_hash, check_password_hash
 
-from core.detection import LogMonitor
-from core.detection_w2 import (
-    parse_nginx_line, parse_sudo_line,
-    NotFoundFloodDetector, DirectoryTraversalDetector, PrivilegeEscalationDetector
-)
+from core.unified import UnifiedMonitor, merge_line_sources
 from core.alerting import AlertDispatcher
 from core.behavior import check_login_behavior, check_command_behavior
 from models import db, AdminUser, MonitorSession, AlertRecord, BehaviorBaseline, IPBlock
@@ -199,6 +195,11 @@ def _baseline_summary(log_type, identity):
     if not identity:
         return None
     row = db.session.get(BehaviorBaseline, f"{log_type}:{identity}")
+    if not row and log_type == 'auto':
+        # Alerts can now come from any rule in the same session (auth, sudo, or web),
+        # so a caller that doesn't know which baseline domain applies can ask for
+        # 'auto' and this checks both instead of guessing wrong and finding nothing.
+        row = db.session.get(BehaviorBaseline, f"auth:{identity}") or db.session.get(BehaviorBaseline, f"sudo:{identity}")
     if not row or row.event_count < 1:
         return None
     p = row.to_profile()
@@ -211,31 +212,6 @@ def _baseline_summary(log_type, identity):
     if p.get('commands'):
         parts.append(f"Usual commands: {', '.join(p['commands'])}.")
     return " ".join(parts)
-
-
-def iter_log_lines(filepath, mode, delay, is_running):
-    """
-    Yields lines from a log file.
-    replay mode: reads the whole file from the top with a delay between lines (demo/replay).
-    tail mode: jumps to the end of the file and only yields genuinely new lines as they're
-    appended, like the real `tail -f` command. This is what makes 'watch a real log file' actually work.
-    """
-    if mode == 'tail':
-        with open(filepath, 'r', encoding='utf-8', errors='ignore') as f:
-            f.seek(0, 2)  # jump to current end of file — ignore everything already in it
-            while is_running():
-                line = f.readline()
-                if line:
-                    yield line
-                else:
-                    time.sleep(1.0)
-    else:
-        with open(filepath, 'r', encoding='utf-8', errors='ignore') as f:
-            for line in f:
-                if not is_running():
-                    break
-                yield line
-                time.sleep(delay)
 
 
 def iter_agent_lines(session_id, is_running):
@@ -279,7 +255,7 @@ def _start_monitor_session(data):
         id=session_id,
         target_name=data.get('target_name', 'Unnamed'),
         server_ip=data.get('server_ip', ''),
-        log_type=data.get('log_type', 'auth'),
+        log_type=data.get('log_type', 'auto'),
         filepath=data.get('filepath', 'sample_logs/auth.log'),
         mode=mode,
         delay=float(data.get('delay', 0.15)),
@@ -329,7 +305,6 @@ def _start_monitor_session(data):
 
             active_streams[session_id]['running'] = True
             mode = row.mode
-            log_type = row.log_type
             filepath = row.filepath
             delay = row.delay
 
@@ -351,7 +326,7 @@ def _start_monitor_session(data):
                 ai_verdict = None
                 try:
                     from core.ai_triage import investigate
-                    baseline_ctx = _baseline_summary(log_type, alert.username or alert.source_ip)
+                    baseline_ctx = _baseline_summary('auto', alert.username or alert.source_ip)
                     if action_note:
                         baseline_ctx = (baseline_ctx or "") + f"\n\nAutomated action already taken: {action_note}"
                     ai_verdict = investigate(alert, baseline_context=baseline_ctx)
@@ -374,39 +349,20 @@ def _start_monitor_session(data):
                     pass
 
             try:
-                if log_type == 'auth':
-                    monitor = LogMonitor()
-
-                    def on_event(event):
-                        row.lines_processed += 1
+                def on_event(kind, event):
+                    row.lines_processed += 1
+                    if kind == 'auth':
                         if event.event_type == 'auth_failure':
                             row.auth_failures += 1
                         elif event.event_type == 'auth_success':
                             row.auth_successes += 1
-                        try:
-                            db.session.commit()
-                        except Exception as e:
-                            print(f"[Monitor {session_id}] Commit failed, continuing: {e}")
-                            db.session.rollback()
+                    try:
+                        db.session.commit()
+                    except Exception as e:
+                        print(f"[Monitor {session_id}] Commit failed, continuing: {e}")
+                        db.session.rollback()
 
-                        if event.event_type == 'auth_success' and event.username:
-                            try:
-                                brow = _get_baseline_row('auth', event.username)
-                                profile, behavior_alert = check_login_behavior(
-                                    brow.to_profile(), event.username, event.source_ip,
-                                    event.timestamp.hour, event.timestamp.isoformat(), event.raw_line
-                                )
-                                brow.apply_profile(profile)
-                                brow.last_seen = event.timestamp.isoformat()
-                                if not brow.first_seen:
-                                    brow.first_seen = event.timestamp.isoformat()
-                                db.session.commit()
-                                if behavior_alert:
-                                    put_alert(behavior_alert)
-                            except Exception as e:
-                                print(f"[Monitor {session_id}] Behavior check failed, continuing: {e}")
-                                db.session.rollback()
-
+                    if kind == 'auth':
                         put('log_event', {
                             'timestamp': event.timestamp.isoformat(),
                             'event_type': event.event_type,
@@ -414,85 +370,71 @@ def _start_monitor_session(data):
                             'source_ip': event.source_ip,
                             'raw_line': event.raw_line
                         })
+                    elif kind == 'nginx':
+                        put('log_event', {
+                            'timestamp': event.timestamp.isoformat(),
+                            'event_type': event.event_type,
+                            'username': None,
+                            'source_ip': event.source_ip,
+                            'raw_line': event.raw_line
+                        })
+                    else:  # sudo
+                        put('log_event', {
+                            'timestamp': event['timestamp'].isoformat(),
+                            'event_type': 'sudo',
+                            'username': event.get('user'),
+                            'source_ip': None,
+                            'raw_line': event.get('raw_line', '')
+                        })
 
-                    monitor.event_callback = on_event
-                    monitor.alert_callback = put_alert
-                    if mode == 'agent':
-                        monitor.consume(iter_agent_lines(session_id, is_running), assumed_year=2026)
-                    elif mode == 'tail':
-                        monitor.tail_file(filepath, poll_interval=1.0, should_continue=is_running)
-                    else:
-                        monitor.replay_file(filepath, delay=delay, assumed_year=2026, should_continue=is_running)
-
-                elif log_type == 'nginx':
-                    d404 = NotFoundFloodDetector(threshold=20, window_seconds=60)
-                    dtrav = DirectoryTraversalDetector()
-                    lines_source = iter_agent_lines(session_id, is_running) if mode == 'agent' \
-                        else iter_log_lines(filepath, mode, delay, is_running)
-                    for line in lines_source:
-                        row.lines_processed += 1
-                        event = parse_nginx_line(line, 2026)
-                        if event:
-                            put('log_event', {
-                                'timestamp': event.timestamp.isoformat(),
-                                'event_type': event.event_type,
-                                'username': None,
-                                'source_ip': event.source_ip,
-                                'raw_line': event.raw_line
-                            })
-                            for det in (d404, dtrav):
-                                alert = det.process_event(event)
-                                if alert:
-                                    put_alert(alert)
-                        try:
+                def on_behavior(kind, event):
+                    try:
+                        if kind == 'auth' and event.event_type == 'auth_success' and event.username:
+                            brow = _get_baseline_row('auth', event.username)
+                            profile, behavior_alert = check_login_behavior(
+                                brow.to_profile(), event.username, event.source_ip,
+                                event.timestamp.hour, event.timestamp.isoformat(), event.raw_line
+                            )
+                            brow.apply_profile(profile)
+                            brow.last_seen = event.timestamp.isoformat()
+                            if not brow.first_seen:
+                                brow.first_seen = event.timestamp.isoformat()
                             db.session.commit()
-                        except Exception as e:
-                            print(f"[Monitor {session_id}] Commit failed, continuing: {e}")
-                            db.session.rollback()
-
-                elif log_type == 'sudo':
-                    dpriv = PrivilegeEscalationDetector()
-                    lines_source = iter_agent_lines(session_id, is_running) if mode == 'agent' \
-                        else iter_log_lines(filepath, mode, delay, is_running)
-                    for line in lines_source:
-                        row.lines_processed += 1
-                        event = parse_sudo_line(line, 2026)
-                        if event:
-                            put('log_event', {
-                                'timestamp': event['timestamp'].isoformat(),
-                                'event_type': 'sudo',
-                                'username': event.get('user'),
-                                'source_ip': None,
-                                'raw_line': event.get('raw_line', '')
-                            })
-                            alert = dpriv.process_event(event)
-                            if alert:
-                                put_alert(alert)
-
+                            if behavior_alert:
+                                put_alert(behavior_alert)
+                        elif kind == 'sudo':
                             user = event.get('user')
                             command = event.get('command') or event.get('raw_line', '').split('COMMAND=')[-1]
                             if user and command:
-                                try:
-                                    brow = _get_baseline_row('sudo', user)
-                                    profile, behavior_alert = check_command_behavior(
-                                        brow.to_profile(), user, command,
-                                        event['timestamp'].isoformat(), event.get('raw_line', '')
-                                    )
-                                    brow.apply_profile(profile)
-                                    brow.last_seen = event['timestamp'].isoformat()
-                                    if not brow.first_seen:
-                                        brow.first_seen = event['timestamp'].isoformat()
-                                    db.session.commit()
-                                    if behavior_alert:
-                                        put_alert(behavior_alert)
-                                except Exception as e:
-                                    print(f"[Monitor {session_id}] Behavior check failed, continuing: {e}")
-                                    db.session.rollback()
-                        try:
-                            db.session.commit()
-                        except Exception as e:
-                            print(f"[Monitor {session_id}] Commit failed, continuing: {e}")
-                            db.session.rollback()
+                                brow = _get_baseline_row('sudo', user)
+                                profile, behavior_alert = check_command_behavior(
+                                    brow.to_profile(), user, command,
+                                    event['timestamp'].isoformat(), event.get('raw_line', '')
+                                )
+                                brow.apply_profile(profile)
+                                brow.last_seen = event['timestamp'].isoformat()
+                                if not brow.first_seen:
+                                    brow.first_seen = event['timestamp'].isoformat()
+                                db.session.commit()
+                                if behavior_alert:
+                                    put_alert(behavior_alert)
+                    except Exception as e:
+                        print(f"[Monitor {session_id}] Behavior check failed, continuing: {e}")
+                        db.session.rollback()
+
+                # Every rule — brute force, suspicious login time, 404 flood, directory
+                # traversal, privilege escalation, and both behavioral baselines — runs
+                # together on every line, regardless of which format that line turns out
+                # to be. No upfront "what am I watching for" choice needed.
+                unified = UnifiedMonitor(on_event=on_event, on_alert=put_alert, on_behavior=on_behavior)
+
+                if mode == 'agent':
+                    for line in iter_agent_lines(session_id, is_running):
+                        unified.process_line(line, assumed_year=2026)
+                else:
+                    paths = [p.strip() for p in filepath.replace(',', '\n').split('\n') if p.strip()]
+                    for line in merge_line_sources(paths, mode, delay, is_running):
+                        unified.process_line(line, assumed_year=2026)
 
             except Exception as e:
                 put('error', {'message': str(e)})

@@ -46,31 +46,22 @@
     </div>
 
     <div class="card mb-16">
-      <div class="card-head"><span class="card-title">Log type</span></div>
-      <div class="grid-3" style="gap:10px;margin-bottom:16px">
-        <div class="mode-card selected" id="typeAuth" onclick="selectType('auth')">
-          <div class="mode-icon"><i class="ti ti-lock" aria-hidden="true"></i></div>
-          <div class="mode-title">SSH / Auth</div>
-          <div class="mode-desc">Linux auth.log — brute force &amp; suspicious logins</div>
-        </div>
-        <div class="mode-card" id="typeNginx" onclick="selectType('nginx')">
-          <div class="mode-icon"><i class="ti ti-world" aria-hidden="true"></i></div>
-          <div class="mode-title">Web Server</div>
-          <div class="mode-desc">Nginx/Apache — 404 floods &amp; path traversal</div>
-        </div>
-        <div class="mode-card" id="typeSudo" onclick="selectType('sudo')">
-          <div class="mode-icon"><i class="ti ti-shield-chevron" aria-hidden="true"></i></div>
-          <div class="mode-title">Sudo / Privilege</div>
-          <div class="mode-desc">Sudo logs — privilege escalation detection</div>
-        </div>
+      <div class="card-head">
+        <span class="card-title">Log sources</span>
+        <span class="pill pill-gray" id="sourceHint">auto-detected per line</span>
       </div>
-      <label class="form-label" id="filepathLabel">Log file path</label>
-      <input type="text" class="input" id="filepath" value="sample_logs/auth.log">
-      <div class="form-hint mt-8" id="filepathHint">Bundled sample — brute force &amp; suspicious login detection</div>
+      <div class="form-hint mb-12">Point at one or more log files — SentinelLog figures out what each line is (SSH/auth, sudo, or web) and runs every matching rule. No need to pick a category.</div>
+      <div id="sourcesList"></div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px">
+        <button type="button" class="btn btn-ghost btn-sm" onclick="addSource('')"><i class="ti ti-plus" aria-hidden="true"></i> Add source</button>
+        <button type="button" class="btn btn-ghost btn-sm" id="chipAuth" onclick="addPreset('auth')"><i class="ti ti-lock" aria-hidden="true"></i> + SSH/Auth</button>
+        <button type="button" class="btn btn-ghost btn-sm" id="chipNginx" onclick="addPreset('nginx')"><i class="ti ti-world" aria-hidden="true"></i> + Web (nginx)</button>
+        <button type="button" class="btn btn-ghost btn-sm" id="chipSudo" onclick="addPreset('sudo')"><i class="ti ti-shield-chevron" aria-hidden="true"></i> + Sudo</button>
+      </div>
     </div>
 
     <div class="card">
-      <div class="card-head"><span class="card-title">Detection rules</span><span class="pill pill-blue" id="ruleCount">2 active</span></div>
+      <div class="card-head"><span class="card-title">Detection rules</span><span class="pill pill-blue">6 active — always on</span></div>
       <div id="rulesList">
         <div class="alert-item">
           <div class="alert-icon crit"><i class="ti ti-alert-triangle" aria-hidden="true"></i></div>
@@ -80,6 +71,26 @@
         <div class="alert-item">
           <div class="alert-icon warn"><i class="ti ti-clock" aria-hidden="true"></i></div>
           <div><div class="alert-title">Suspicious login time</div><div class="alert-desc">Login during 00:00–05:00 with no prior night history</div></div>
+          <span class="pill pill-amber" style="margin-left:auto">active</span>
+        </div>
+        <div class="alert-item">
+          <div class="alert-icon crit"><i class="ti ti-shield-x" aria-hidden="true"></i></div>
+          <div><div class="alert-title">Privilege escalation</div><div class="alert-desc">Unexpected user or dangerous command via sudo</div></div>
+          <span class="pill pill-red" style="margin-left:auto">active</span>
+        </div>
+        <div class="alert-item">
+          <div class="alert-icon crit"><i class="ti ti-alert-triangle" aria-hidden="true"></i></div>
+          <div><div class="alert-title">404 flood / Web scanner</div><div class="alert-desc">20+ 404 requests from same IP within 60s</div></div>
+          <span class="pill pill-red" style="margin-left:auto">active</span>
+        </div>
+        <div class="alert-item">
+          <div class="alert-icon crit"><i class="ti ti-folder-x" aria-hidden="true"></i></div>
+          <div><div class="alert-title">Directory traversal</div><div class="alert-desc">Path traversal patterns like ../../etc/passwd</div></div>
+          <span class="pill pill-red" style="margin-left:auto">active</span>
+        </div>
+        <div class="alert-item">
+          <div class="alert-icon warn"><i class="ti ti-fingerprint" aria-hidden="true"></i></div>
+          <div><div class="alert-title">Behavioral anomaly</div><div class="alert-desc">New IP, new hour, or unfamiliar command vs. that identity's own history</div></div>
           <span class="pill pill-amber" style="margin-left:auto">active</span>
         </div>
       </div>
@@ -101,7 +112,11 @@
           </div>
           <div class="flex-between">
             <span class="text-sm text-muted">Rules</span>
-            <span class="text-sm">2 active</span>
+            <span class="text-sm">6 active</span>
+          </div>
+          <div class="flex-between">
+            <span class="text-sm text-muted">Sources</span>
+            <span class="text-sm" id="summarySources">1</span>
           </div>
         </div>
       </div>
@@ -181,28 +196,47 @@
 {% block extra_scripts %}
 <script>
 let currentMode = 'replay';
-let currentType = 'auth';
 
-const typeConfig = {
-  auth:  { file: 'sample_logs/auth.log',         hint: 'Bundled sample — brute force & suspicious login detection', rules: 2, rulesHtml: `<div class="alert-item"><div class="alert-icon crit"><i class="ti ti-alert-triangle"></i></div><div><div class="alert-title">Brute force</div><div class="alert-desc">5+ failed logins from same IP within 60s</div></div><span class="pill pill-red" style="margin-left:auto">active</span></div><div class="alert-item"><div class="alert-icon warn"><i class="ti ti-clock"></i></div><div><div class="alert-title">Suspicious login time</div><div class="alert-desc">Login during 00:00-05:00 with no prior night history</div></div><span class="pill pill-amber" style="margin-left:auto">active</span></div>` },
-  nginx: { file: 'sample_logs/nginx_access.log', hint: 'Bundled sample — web scanner & path traversal detection', rules: 2, rulesHtml: `<div class="alert-item"><div class="alert-icon crit"><i class="ti ti-alert-triangle"></i></div><div><div class="alert-title">404 flood / Web scanner</div><div class="alert-desc">20+ 404 requests from same IP within 60s</div></div><span class="pill pill-red" style="margin-left:auto">active</span></div><div class="alert-item"><div class="alert-icon crit"><i class="ti ti-folder-x"></i></div><div><div class="alert-title">Directory traversal</div><div class="alert-desc">Path traversal patterns like ../../etc/passwd</div></div><span class="pill pill-red" style="margin-left:auto">active</span></div>` },
-  sudo:  { file: 'sample_logs/sudo.log',          hint: 'Bundled sample — privilege escalation detection', rules: 1, rulesHtml: `<div class="alert-item"><div class="alert-icon crit"><i class="ti ti-shield-x"></i></div><div><div class="alert-title">Privilege escalation</div><div class="alert-desc">Unexpected user or dangerous command via sudo</div></div><span class="pill pill-red" style="margin-left:auto">active</span></div>` },
+const presetPaths = {
+  replay: { auth: 'sample_logs/auth.log', nginx: 'sample_logs/nginx_access.log', sudo: 'sample_logs/sudo.log' },
+  tail:   { auth: '/var/log/auth.log',    nginx: '/var/log/nginx/access.log',    sudo: '/var/log/auth.log' },
+  agent:  { auth: '/var/log/auth.log',    nginx: '/var/log/nginx/access.log',    sudo: '/var/log/auth.log' },
 };
 
-let userEditedPath = false;
-document.getElementById('filepath').addEventListener('input', () => { userEditedPath = true; });
+function sourceRows() {
+  return Array.from(document.querySelectorAll('#sourcesList .source-row input'));
+}
 
-function selectType(type) {
-  document.querySelectorAll('[id^="type"]').forEach(c => c.classList.remove('selected'));
-  document.getElementById('type' + type.charAt(0).toUpperCase() + type.slice(1)).classList.add('selected');
-  currentType = type;
-  const cfg = typeConfig[type];
-  if (!userEditedPath) {
-    document.getElementById('filepath').value = cfg.file;
-  }
-  document.getElementById('filepathHint').textContent = cfg.hint;
-  document.getElementById('rulesList').innerHTML = cfg.rulesHtml;
-  document.getElementById('ruleCount').textContent = cfg.rules + ' active';
+function renderSourceControls() {
+  const rows = sourceRows();
+  // Agent mode forwards exactly one file per running agent process, so keep it to one source.
+  document.getElementById('chipAuth').style.display = currentMode === 'agent' && rows.length >= 1 ? 'none' : '';
+  document.getElementById('chipNginx').style.display = currentMode === 'agent' && rows.length >= 1 ? 'none' : '';
+  document.getElementById('chipSudo').style.display = currentMode === 'agent' && rows.length >= 1 ? 'none' : '';
+  document.querySelectorAll('#sourcesList .source-row .btn-remove').forEach(b => {
+    b.style.display = rows.length > 1 ? '' : 'none';
+  });
+  document.getElementById('summarySources').textContent = rows.length;
+}
+
+function addSource(value) {
+  if (currentMode === 'agent' && sourceRows().length >= 1) return; // one source only in agent mode
+  const list = document.getElementById('sourcesList');
+  const row = document.createElement('div');
+  row.className = 'source-row';
+  row.style.cssText = 'display:flex;gap:8px;margin-bottom:8px';
+  row.innerHTML = `
+    <input type="text" class="input" value="${value.replace(/"/g, '&quot;')}" placeholder="e.g. /var/log/auth.log">
+    <button type="button" class="btn btn-ghost btn-sm btn-remove" onclick="this.closest('.source-row').remove(); renderSourceControls()"><i class="ti ti-x" aria-hidden="true"></i></button>
+  `;
+  list.appendChild(row);
+  renderSourceControls();
+}
+
+function addPreset(kind) {
+  const path = presetPaths[currentMode][kind];
+  if (sourceRows().some(i => i.value === path)) return; // already added
+  addSource(path);
 }
 
 function selectMode(mode) {
@@ -214,28 +248,24 @@ function selectMode(mode) {
   document.getElementById('summaryMode').textContent = modeLabels[mode];
   document.getElementById('summaryMode').className = `pill ${modePills[mode]}`;
 
-  const label = document.getElementById('filepathLabel');
-  const fp = document.getElementById('filepath');
-  const hint = document.getElementById('filepathHint');
-  label.textContent = mode === 'agent' ? 'Log file path (on the remote server)' : 'Log file path';
-
-  if (!userEditedPath) {
-    if (mode === 'replay') {
-      fp.value = 'sample_logs/auth.log';
-      hint.textContent = 'Bundled sample — shows brute force + suspicious login detection';
-    } else if (mode === 'agent') {
-      fp.value = '/var/log/auth.log';
-      hint.textContent = "Path the agent will tail on the remote machine — this dashboard never opens it directly";
-    } else {
-      fp.value = '/var/log/auth.log';
-      hint.textContent = 'Real log file on this machine — requires read permission';
-    }
+  // Reset to a single sensible default source for the new mode rather than trying
+  // to translate whatever paths were typed for a different mode.
+  document.getElementById('sourcesList').innerHTML = '';
+  if (mode === 'replay') {
+    addSource(presetPaths.replay.auth);
+    addSource(presetPaths.replay.nginx);
+    addSource(presetPaths.replay.sudo);
+    document.getElementById('sourceHint').textContent = 'bundled sample — all 3 sources loaded';
+  } else if (mode === 'agent') {
+    addSource(presetPaths.agent.auth);
+    document.getElementById('sourceHint').textContent = 'path the agent will tail remotely';
   } else {
-    hint.textContent = mode === 'replay' ? 'Replaying your chosen file from the top'
-      : mode === 'agent' ? 'Path the agent will tail on the remote machine'
-      : 'Watching your chosen file for new lines';
+    addSource(presetPaths.tail.auth);
+    document.getElementById('sourceHint').textContent = 'auto-detected per line';
   }
 }
+
+selectMode('replay'); // populate the default sources list on page load
 
 document.getElementById('targetName').addEventListener('input', e => {
   document.getElementById('summaryName').textContent = e.target.value || '—';
@@ -293,12 +323,18 @@ async function testEmail() {
 async function startMonitor() {
   const errEl = document.getElementById('launchError');
   errEl.style.display = 'none';
+  const paths = sourceRows().map(i => i.value.trim()).filter(Boolean);
+  if (paths.length === 0) {
+    errEl.textContent = 'Add at least one log source.';
+    errEl.style.display = 'block';
+    return;
+  }
   const payload = {
       target_name: document.getElementById('targetName').value || 'Unnamed Source',
-      log_type: currentType,
+      log_type: 'auto',
       server_ip: document.getElementById('serverIp').value,
       mode: currentMode,
-      filepath: document.getElementById('filepath').value,
+      filepath: paths.join('\n'),
       delay: 0.15,
       telegram_token: document.getElementById("telegramToken").value,
       telegram_chat_id: document.getElementById("telegramChatId").value,
