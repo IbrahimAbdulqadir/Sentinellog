@@ -61,7 +61,7 @@
     </div>
 
     <div class="card">
-      <div class="card-head"><span class="card-title">Detection rules</span><span class="pill pill-blue">7 active — always on</span></div>
+      <div class="card-head"><span class="card-title">Detection rules</span><span class="pill pill-blue">8 active — always on</span></div>
       <div id="rulesList">
         <div class="alert-item">
           <div class="alert-icon crit"><i class="ti ti-alert-triangle" aria-hidden="true"></i></div>
@@ -94,6 +94,11 @@
           <span class="pill pill-red" style="margin-left:auto">active</span>
         </div>
         <div class="alert-item">
+          <div class="alert-icon crit"><i class="ti ti-terminal-2" aria-hidden="true"></i></div>
+          <div><div class="alert-title">Root shell command</div><div class="alert-desc">Command run as root by a login identity that isn't root (needs auditd)</div></div>
+          <span class="pill pill-red" style="margin-left:auto">active</span>
+        </div>
+        <div class="alert-item">
           <div class="alert-icon warn"><i class="ti ti-fingerprint" aria-hidden="true"></i></div>
           <div><div class="alert-title">Behavioral anomaly</div><div class="alert-desc">New IP, new hour, or unfamiliar command vs. that identity's own history</div></div>
           <span class="pill pill-amber" style="margin-left:auto">active</span>
@@ -117,7 +122,7 @@
           </div>
           <div class="flex-between">
             <span class="text-sm text-muted">Rules</span>
-            <span class="text-sm">7 active</span>
+            <span class="text-sm">8 active</span>
           </div>
           <div class="flex-between">
             <span class="text-sm text-muted">Sources</span>

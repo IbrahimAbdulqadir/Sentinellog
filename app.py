@@ -386,10 +386,18 @@ def _start_monitor_session(data):
                             'source_ip': None,
                             'raw_line': event.get('raw_line', '')
                         })
-                    else:  # su
+                    elif kind == 'su':
                         put('log_event', {
                             'timestamp': event['timestamp'].isoformat(),
                             'event_type': 'su_' + event.get('outcome', 'attempt'),
+                            'username': event.get('actor'),
+                            'source_ip': None,
+                            'raw_line': event.get('raw_line', '')
+                        })
+                    else:  # audit
+                        put('log_event', {
+                            'timestamp': event['timestamp'].isoformat(),
+                            'event_type': 'audit_cmd',
                             'username': event.get('actor'),
                             'source_ip': None,
                             'raw_line': event.get('raw_line', '')

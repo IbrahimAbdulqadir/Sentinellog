@@ -233,6 +233,8 @@ function connectLive() {
       addLog('t-alert', `SU    ${d.username || '?'} switched account`);
     } else if (d.event_type === 'su_failure') {
       addLog('t-fail', `SU    ${d.username || '?'} denied — account switch attempt`);
+    } else if (d.event_type === 'audit_cmd') {
+      addLog('t-alert', `ROOT  ${d.username || '?'} ran a command as root — ${d.raw_line.match(/comm="([^"]*)"/)?.[1] || '?'}`);
     } else {
       addLog('t-ok', `OK    ${d.source_ip || d.username || '?'}`);
     }

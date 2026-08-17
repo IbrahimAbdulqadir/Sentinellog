@@ -143,6 +143,38 @@ def parse_sudo_line(line: str, assumed_year: int = None) -> Optional[dict]:
     }
 
 
+def parse_audit_line(line: str) -> Optional[dict]:
+    """
+    Parses an auditd EXECVE record tagged with the 'rootshell_cmd' key, a rule
+    that specifically watches for auid != 0 with uid == 0, i.e. a login
+    identity that isn't root, currently executing as root. That's the exact
+    gap sudo/su logging alone can't see: what happens once someone is already
+    inside an escalated shell. Unlike the syslog-style formats above, auditd's
+    own timestamp is an absolute Unix epoch, so there's no year-guessing needed.
+    """
+    line = line.strip()
+    if not line or 'key="rootshell_cmd"' not in line:
+        return None
+
+    epoch_m = re.search(r'msg=audit\((\d+)\.\d+:\d+\)', line)
+    auid_m = re.search(r'AUID="([^"]*)"', line)
+    comm_m = re.search(r'\bcomm="([^"]*)"', line)
+    if not (epoch_m and auid_m and comm_m):
+        return None
+
+    try:
+        ts = datetime.fromtimestamp(int(epoch_m.group(1)))
+    except Exception:
+        ts = datetime.now()
+
+    return {
+        'timestamp': ts,
+        'actor': auid_m.group(1),
+        'command': comm_m.group(1),
+        'raw_line': line,
+    }
+
+
 def parse_su_line(line: str, assumed_year: int = None) -> Optional[dict]:
     """Parses either a successful or a rejected `su` (account switch) attempt."""
     line = line.strip()
@@ -356,6 +388,55 @@ class AccountSwitchDetector:
             description=(
                 f"'{actor}' {verb} the '{target}' account via su, "
                 f"bypassing sudo's per-command trail entirely."
+            ),
+            source_ip=None,
+            username=actor,
+            event_count=1,
+            first_seen=ts.isoformat(),
+            last_seen=ts.isoformat(),
+            timestamp=datetime.utcnow().isoformat(),
+            evidence=[event.get('raw_line', '')]
+        )
+
+
+class RootShellCommandDetector:
+    """
+    Flags commands run as root by a login identity that isn't root, the
+    activity that happens *after* a successful escalation, which sudo/su
+    logging alone never sees: sudo only records the one command that opened
+    the door (or the su session that started), not what's typed once someone
+    is already inside. Requires the auditd rule described in the operator
+    runbook (auid>0, auid!=unset, uid=0, execve) to actually be present.
+    """
+
+    def __init__(self):
+        self.seen: set = set()
+
+    def process_event(self, event: dict) -> Optional[Alert]:
+        if not event:
+            return None
+
+        actor = event.get('actor', '')
+        command = event.get('command', '')
+        ts = event.get('timestamp', datetime.utcnow())
+
+        if not actor or actor in TRUSTED_SUDO_USERS or actor == 'unset':
+            return None
+
+        key = f"{actor}:{command}"
+        if key in self.seen:
+            return None
+        self.seen.add(key)
+
+        return Alert(
+            id=f"rootcmd_{actor}_{int(ts.timestamp())}_{uuid.uuid4().hex[:6]}",
+            rule='rootshell_command',
+            severity='critical',
+            title=f"Command run as root — {actor} ran '{command}'",
+            description=(
+                f"'{actor}' logged in as a non-root account but executed '{command}' "
+                f"while running as root, evidence of what happened inside an escalated "
+                f"shell after the initial sudo/su that granted it."
             ),
             source_ip=None,
             username=actor,
