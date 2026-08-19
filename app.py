@@ -2,6 +2,7 @@
 SentinelLog - Flask Application
 """
 import os, json, uuid, queue, threading, time, secrets, hmac
+from collections import deque
 from datetime import datetime, timedelta
 from dataclasses import asdict
 from dotenv import load_dotenv
@@ -274,6 +275,10 @@ def _start_monitor_session(data):
     active_streams[session_id] = {
         'queue': q, 'ready': ready, 'running': False, 'connected': is_agent,
         'ingest_queue': queue.Queue() if is_agent else None,
+        # Recent log_event/alert items, kept around so a browser that navigates away
+        # (e.g. to an alert's detail page) and comes back can replay what it missed
+        # instead of the live feed panel appearing to reset.
+        'history': deque(maxlen=300),
     }
 
     def is_running():
@@ -313,7 +318,12 @@ def _start_monitor_session(data):
             dispatcher.add_gmail(row.email_username, row.email_password, row.email_to)
 
             def put(ev, d):
-                q.put({'event': ev, 'data': d})
+                item = {'event': ev, 'data': d}
+                q.put(item)
+                if ev == 'log_event':
+                    # Alerts already have their own DB-backed history via
+                    # /api/monitor/<id>/alerts — only the raw feed lines need this.
+                    active_streams[session_id]['history'].append(item)
 
             def put_alert(alert):
                 action_note = None
@@ -537,6 +547,18 @@ def api_session_alerts(session_id):
     fact, instead of only showing alerts that stream in after the page loads."""
     records = AlertRecord.query.filter_by(session_id=session_id).order_by(AlertRecord.timestamp.desc()).all()
     return jsonify([r.to_dict() for r in records])
+
+
+@app.route('/api/monitor/<session_id>/feed')
+@login_required
+def api_session_feed(session_id):
+    """Recent raw log_event lines still held in memory for this session — lets a
+    browser that navigates away and back replay what the live feed panel missed,
+    instead of it looking like the session restarted."""
+    stream = active_streams.get(session_id)
+    if not stream:
+        return jsonify([])
+    return jsonify(list(stream.get('history', [])))
 
 
 @app.route('/api/monitor/<session_id>/stream')

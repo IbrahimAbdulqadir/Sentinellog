@@ -96,7 +96,7 @@ function copyAgentCommand() {
   navigator.clipboard.writeText(document.getElementById('agentCommand').textContent);
 }
 
-function addLog(cls, text) {
+function addLog(cls, text, atTime) {
   if (firstLog) {
     terminal.innerHTML = '';
     firstLog = false;
@@ -105,10 +105,45 @@ function addLog(cls, text) {
   }
   const line = document.createElement('div');
   line.className = 't-line';
-  line.innerHTML = `<span class="t-ts">${ts()}</span><span class="${cls}"> ${text}</span>`;
+  const stamp = atTime ? new Date(atTime).toTimeString().slice(0,8) : ts();
+  line.innerHTML = `<span class="t-ts">${stamp}</span><span class="${cls}"> ${text}</span>`;
   terminal.appendChild(line);
   terminal.scrollTop = terminal.scrollHeight;
   while (terminal.children.length > 200) terminal.removeChild(terminal.firstChild);
+}
+
+// Renders one log_event into the terminal. `live` controls whether it also bumps the
+// running counters — replayed history is already reflected in the stats loaded from
+// /status, so counting it again would inflate the numbers.
+function renderLogEvent(d, live) {
+  if (live) {
+    lineCount++;
+    document.getElementById('lsLines').textContent = lineCount;
+  }
+  const at = d.timestamp;
+
+  if (d.event_type === 'auth_failure') {
+    if (live) { failureCount++; document.getElementById('lsFailures').textContent = failureCount; }
+    addLog('t-fail', `FAIL  ${d.username || '?'}@${d.source_ip || '?'}`, at);
+  } else if (d.event_type === 'auth_success') {
+    if (live) { successCount++; document.getElementById('lsSuccess').textContent = successCount; }
+    addLog('t-ok', `OK    ${d.username || '?'}@${d.source_ip || '?'}`, at);
+  } else if (d.event_type === '404') {
+    if (live) { failureCount++; document.getElementById('lsFailures').textContent = failureCount; }
+    addLog('t-fail', `404   ${d.source_ip || '?'} → ${d.raw_line.split('"')[1] || ''}`, at);
+  } else if (d.event_type === 'traversal') {
+    addLog('t-alert', `TRAV  ${d.source_ip || '?'} → path traversal attempt`, at);
+  } else if (d.event_type === 'sudo') {
+    addLog('t-fail', `SUDO  ${d.username || '?'} → ${d.raw_line.split('COMMAND=')[1] || ''}`, at);
+  } else if (d.event_type === 'su_success') {
+    addLog('t-alert', `SU    ${d.username || '?'} switched account`, at);
+  } else if (d.event_type === 'su_failure') {
+    addLog('t-fail', `SU    ${d.username || '?'} denied — account switch attempt`, at);
+  } else if (d.event_type === 'audit_cmd') {
+    addLog('t-alert', `ROOT  ${d.username || '?'} ran a command as root — ${d.raw_line.match(/comm="([^"]*)"/)?.[1] || '?'}`, at);
+  } else {
+    addLog('t-ok', `OK    ${d.source_ip || d.username || '?'}`, at);
+  }
 }
 
 function addAlert(alert, isHistorical) {
@@ -181,6 +216,13 @@ fetch('/api/monitor/{{ session_id }}/status')
     } catch (e) { console.warn('Could not load historical alerts', e); }
 
     if (d.live_available) {
+      // Recent raw feed lines still held in memory for this session — replaying these is
+      // what stops the live feed panel from looking like it restarted after navigating
+      // away (e.g. to an alert) and back.
+      try {
+        const feedRes = await fetch(`/api/monitor/{{ session_id }}/feed`).then(r => r.json());
+        feedRes.forEach(item => renderLogEvent(item.data, false));
+      } catch (e) { console.warn('Could not load recent feed history', e); }
       connectLive();
     } else {
       // Not currently live in this process — show what's saved, offer to resume instead of spinning forever
@@ -208,37 +250,7 @@ function connectLive() {
     console.log('SSE open');
   };
 
-  evtSource.addEventListener('log_event', e => {
-    const d = JSON.parse(e.data);
-    lineCount++;
-    document.getElementById('lsLines').textContent = lineCount;
-
-    if (d.event_type === 'auth_failure') {
-      failureCount++;
-      document.getElementById('lsFailures').textContent = failureCount;
-      addLog('t-fail', `FAIL  ${d.username || '?'}@${d.source_ip || '?'}`);
-    } else if (d.event_type === 'auth_success') {
-      successCount++;
-      document.getElementById('lsSuccess').textContent = successCount;
-      addLog('t-ok', `OK    ${d.username || '?'}@${d.source_ip || '?'}`);
-    } else if (d.event_type === '404') {
-      failureCount++;
-      document.getElementById('lsFailures').textContent = failureCount;
-      addLog('t-fail', `404   ${d.source_ip || '?'} → ${d.raw_line.split('"')[1] || ''}`);
-    } else if (d.event_type === 'traversal') {
-      addLog('t-alert', `TRAV  ${d.source_ip || '?'} → path traversal attempt`);
-    } else if (d.event_type === 'sudo') {
-      addLog('t-fail', `SUDO  ${d.username || '?'} → ${d.raw_line.split('COMMAND=')[1] || ''}`);
-    } else if (d.event_type === 'su_success') {
-      addLog('t-alert', `SU    ${d.username || '?'} switched account`);
-    } else if (d.event_type === 'su_failure') {
-      addLog('t-fail', `SU    ${d.username || '?'} denied — account switch attempt`);
-    } else if (d.event_type === 'audit_cmd') {
-      addLog('t-alert', `ROOT  ${d.username || '?'} ran a command as root — ${d.raw_line.match(/comm="([^"]*)"/)?.[1] || '?'}`);
-    } else {
-      addLog('t-ok', `OK    ${d.source_ip || d.username || '?'}`);
-    }
-  });
+  evtSource.addEventListener('log_event', e => renderLogEvent(JSON.parse(e.data), true));
 
   evtSource.addEventListener('alert', e => {
     const a = JSON.parse(e.data);
