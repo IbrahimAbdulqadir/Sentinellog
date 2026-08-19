@@ -404,10 +404,18 @@ def _start_monitor_session(data):
                             'source_ip': None,
                             'raw_line': event.get('raw_line', '')
                         })
-                    else:  # audit
+                    elif kind == 'audit':
                         put('log_event', {
                             'timestamp': event['timestamp'].isoformat(),
                             'event_type': 'audit_cmd',
+                            'username': event.get('actor'),
+                            'source_ip': None,
+                            'raw_line': event.get('raw_line', '')
+                        })
+                    else:  # scope
+                        put('log_event', {
+                            'timestamp': event['timestamp'].isoformat(),
+                            'event_type': 'scope_violation',
                             'username': event.get('actor'),
                             'source_ip': None,
                             'raw_line': event.get('raw_line', '')

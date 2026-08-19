@@ -3,6 +3,7 @@ SentinelLog — Week 2 Detection Rules
 Nginx/Apache log parser, 404 flood, directory traversal, privilege escalation
 """
 
+import posixpath
 import re
 import uuid
 from datetime import datetime, timedelta
@@ -59,6 +60,31 @@ SUSPICIOUS_COMMANDS = [
 ]
 
 TRUSTED_SUDO_USERS = {'root', 'ibrahim', 'admin', 'ubuntu', 'deploy'}
+
+# Per-user filesystem scope, sketch/placeholder config: which absolute path prefixes
+# each login identity is allowed to touch. A user with no entry here has nothing
+# enforced against them — this is opt-in per account, not a default-deny for everyone,
+# so accounts that were never assigned a scope don't start generating alerts.
+USER_SCOPES = {
+    'user1': ['/home/user1/Downloads'],
+    'user2': ['/home/user2/Downloads'],
+    'user3': ['/home/user3/Downloads'],
+    'user4': ['/home/user4/Downloads'],
+}
+
+
+def _within_scope(path: str, allowed_prefixes: list) -> bool:
+    """
+    True if `path` falls inside one of `allowed_prefixes`. Boundary-checks on '/' so
+    an allowed prefix of '/home/user1/Downloads' doesn't wrongly also match a sibling
+    directory like '/home/user1/Downloads-old'.
+    """
+    normalized = posixpath.normpath(path)
+    for prefix in allowed_prefixes:
+        prefix = posixpath.normpath(prefix)
+        if normalized == prefix or normalized.startswith(prefix + '/'):
+            return True
+    return False
 
 
 @dataclass
@@ -171,6 +197,43 @@ def parse_audit_line(line: str) -> Optional[dict]:
         'timestamp': ts,
         'actor': auid_m.group(1),
         'command': comm_m.group(1),
+        'raw_line': line,
+    }
+
+
+def parse_scope_line(line: str) -> Optional[dict]:
+    """
+    Parses an auditd record tagged with the 'scope_watch' key, a path watch
+    (`-w /home -p rwxa -k scope_watch`) rather than a syscall-argument rule like
+    'rootshell_cmd' — it fires at the VFS layer on open/read/write/exec of anything
+    under the watched tree, so `ls`, `cat`, a script, and a GUI file manager all
+    produce the exact same record. That's what makes tool-of-access irrelevant here.
+
+    NOTE — simplification: real auditd splits this across a SYSCALL record (which
+    carries AUID) and a separate PATH record (which carries `name=`), correlated by
+    the shared serial number in `msg=audit(epoch.msec:serial)`. This parser assumes
+    those two have already been merged into one line (e.g. via `ausearch -i` output,
+    or a small preprocessing step upstream) so AUID and name= appear together.
+    """
+    line = line.strip()
+    if not line or 'key="scope_watch"' not in line:
+        return None
+
+    epoch_m = re.search(r'msg=audit\((\d+)\.\d+:\d+\)', line)
+    auid_m = re.search(r'AUID="([^"]*)"', line)
+    name_m = re.search(r'\bname="([^"]*)"', line)
+    if not (epoch_m and auid_m and name_m):
+        return None
+
+    try:
+        ts = datetime.fromtimestamp(int(epoch_m.group(1)))
+    except Exception:
+        ts = datetime.now()
+
+    return {
+        'timestamp': ts,
+        'actor': auid_m.group(1),
+        'path': name_m.group(1),
         'raw_line': line,
     }
 
@@ -437,6 +500,67 @@ class RootShellCommandDetector:
                 f"'{actor}' logged in as a non-root account but executed '{command}' "
                 f"while running as root, evidence of what happened inside an escalated "
                 f"shell after the initial sudo/su that granted it."
+            ),
+            source_ip=None,
+            username=actor,
+            event_count=1,
+            first_seen=ts.isoformat(),
+            last_seen=ts.isoformat(),
+            timestamp=datetime.utcnow().isoformat(),
+            evidence=[event.get('raw_line', '')]
+        )
+
+
+class ScopeViolationDetector:
+    """
+    Flags a user touching anything outside their assigned filesystem scope
+    (USER_SCOPES), independent of privilege level — unlike RootShellCommandDetector,
+    this doesn't require escalation to fire. A user reading their own permitted
+    files with their own normal account is enough to trip it if that read lands
+    outside their lane. Because it's driven by an auditd path watch rather than a
+    syscall-argument rule, it can't be dodged by switching tools — `ls`, a script,
+    or a GUI file manager all generate the same underlying record.
+
+    Accounts with no entry in USER_SCOPES are skipped entirely: this rule is opt-in
+    per user, not a default-deny that would flag admins/trusted accounts who were
+    never meant to be scoped in the first place.
+    """
+
+    def __init__(self, scopes: dict = None):
+        self.scopes = scopes if scopes is not None else USER_SCOPES
+        self.seen: set = set()
+
+    def process_event(self, event: dict) -> Optional[Alert]:
+        if not event:
+            return None
+
+        actor = event.get('actor', '')
+        path = event.get('path', '')
+        ts = event.get('timestamp', datetime.utcnow())
+
+        allowed = self.scopes.get(actor)
+        if not allowed or not path:
+            return None
+
+        if _within_scope(path, allowed):
+            return None
+
+        real_path = posixpath.normpath(path)
+        key = f"{actor}:{real_path}"
+        if key in self.seen:
+            return None
+        self.seen.add(key)
+
+        return Alert(
+            id=f"scope_{actor}_{int(ts.timestamp())}_{uuid.uuid4().hex[:6]}",
+            rule='scope_violation',
+            severity='high',
+            title=f"Out-of-scope access — {actor} touched '{real_path}'",
+            description=(
+                f"'{actor}' is scoped to {', '.join(allowed)}, but accessed "
+                f"'{real_path}', outside their assigned area. This was caught at "
+                f"the filesystem level, so it applies whether it happened from a "
+                f"shell command, a script, or a GUI file manager."
             ),
             source_ip=None,
             username=actor,

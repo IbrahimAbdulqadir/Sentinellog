@@ -25,22 +25,24 @@ import time
 
 from core.detection import parse_log_line, BruteForceDetector, SuspiciousTimeDetector
 from core.detection_w2 import (
-    parse_nginx_line, parse_sudo_line, parse_su_line, parse_audit_line,
+    parse_nginx_line, parse_sudo_line, parse_su_line, parse_audit_line, parse_scope_line,
     NotFoundFloodDetector, DirectoryTraversalDetector, PrivilegeEscalationDetector,
-    AccountSwitchDetector, RootShellCommandDetector,
+    AccountSwitchDetector, RootShellCommandDetector, ScopeViolationDetector,
 )
 
 
 def classify_line(line, assumed_year=None):
     """
     Identify a log line's format by trying the most specific parsers first.
-    Returns (kind, parsed_event) with kind in {'sudo', 'su', 'audit', 'nginx',
-    'auth'}, or (None, None) if nothing recognizes it. su has to be checked
-    before the generic auth parser: an su line also matches the generic
+    Returns (kind, parsed_event) with kind in {'sudo', 'su', 'audit', 'scope',
+    'nginx', 'auth'}, or (None, None) if nothing recognizes it. su has to be
+    checked before the generic auth parser: an su line also matches the generic
     "process[pid]: message" shape, so if auth ran first it would swallow su
     lines as boring, unclassified auth events and this rule would never see
-    them. audit lines have their own unmistakable "type=SYSCALL" shape, so
-    ordering relative to the others doesn't matter.
+    them. audit and scope lines both have the same unmistakable "type=SYSCALL"/
+    "msg=audit(...)" shape but are told apart by their `key=` tag
+    ('rootshell_cmd' vs 'scope_watch'), so ordering relative to the others
+    doesn't matter.
     """
     sudo_event = parse_sudo_line(line, assumed_year)
     if sudo_event:
@@ -53,6 +55,10 @@ def classify_line(line, assumed_year=None):
     audit_event = parse_audit_line(line)
     if audit_event:
         return 'audit', audit_event
+
+    scope_event = parse_scope_line(line)
+    if scope_event:
+        return 'scope', scope_event
 
     nginx_event = parse_nginx_line(line, assumed_year)
     if nginx_event:
@@ -77,6 +83,7 @@ class UnifiedMonitor:
         self.priv_esc = PrivilegeEscalationDetector()
         self.acct_switch = AccountSwitchDetector()
         self.rootshell_cmd = RootShellCommandDetector()
+        self.scope_violation = ScopeViolationDetector()
 
         self.on_event = on_event        # (kind, event) -> None
         self.on_alert = on_alert        # (Alert) -> None
@@ -110,8 +117,10 @@ class UnifiedMonitor:
             detectors = (self.priv_esc,)
         elif kind == 'su':
             detectors = (self.acct_switch,)
-        else:  # audit
+        elif kind == 'audit':
             detectors = (self.rootshell_cmd,)
+        else:  # scope
+            detectors = (self.scope_violation,)
 
         if self.on_event:
             self.on_event(kind, event)

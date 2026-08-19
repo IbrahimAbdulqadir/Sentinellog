@@ -141,6 +141,8 @@ function renderLogEvent(d, live) {
     addLog('t-fail', `SU    ${d.username || '?'} denied — account switch attempt`, at);
   } else if (d.event_type === 'audit_cmd') {
     addLog('t-alert', `ROOT  ${d.username || '?'} ran a command as root — ${d.raw_line.match(/comm="([^"]*)"/)?.[1] || '?'}`, at);
+  } else if (d.event_type === 'scope_violation') {
+    addLog('t-alert', `SCOPE ${d.username || '?'} accessed outside their assigned area — ${d.raw_line.match(/name="([^"]*)"/)?.[1] || '?'}`, at);
   } else {
     addLog('t-ok', `OK    ${d.source_ip || d.username || '?'}`, at);
   }
