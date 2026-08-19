@@ -51,6 +51,13 @@ def init_db():
         if 'agent_key' not in existing_cols:
             db.session.execute(db.text("ALTER TABLE monitor_session ADD COLUMN agent_key VARCHAR(64) DEFAULT ''"))
             db.session.commit()
+        # A session's `running` flag is only ever cleared by its own worker thread's
+        # `finally` block — which a restart (SIGTERM) doesn't give daemon threads the
+        # chance to run. A fresh process always starts with zero live sessions (this
+        # module's `active_streams` dict is empty on import), so any row still marked
+        # running here is stale from before this restart, not actually live.
+        db.session.execute(db.text("UPDATE monitor_session SET running = 0 WHERE running = 1"))
+        db.session.commit()
         if not AdminUser.query.first():
             username = os.environ.get('ADMIN_USERNAME', 'admin')
             password = os.environ.get('ADMIN_PASSWORD', 'change-me')
@@ -61,6 +68,20 @@ def init_db():
 
 
 # ─── Auth ────────────────────────────────────────────────────────────────────
+
+@app.context_processor
+def inject_active_session():
+    """
+    Makes the currently-running monitor session (if any) available to every
+    template, not just monitor.html — this is what lets base.html show a live
+    session tab in the nav bar on every page, so a running session is always
+    one click away instead of only reachable from its own page.
+    """
+    if not current_user.is_authenticated:
+        return {}
+    row = MonitorSession.query.filter_by(running=True).order_by(MonitorSession.started_at.desc()).first()
+    return {'active_monitor_session': row}
+
 
 @app.route('/login', methods=['GET', 'POST'])
 def login():

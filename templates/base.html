@@ -330,6 +330,11 @@
       <a href="/monitor/new" class="nav-link {% if '/monitor/new' in request.path %}active{% endif %}">
         <i class="ti ti-plus" aria-hidden="true"></i><span>New monitor</span>
       </a>
+      {% if active_monitor_session %}
+      <a href="/monitor/{{ active_monitor_session.id }}" class="nav-link {% if request.path == '/monitor/' + active_monitor_session.id %}active{% endif %}" style="color:var(--green)">
+        <i class="ti ti-activity" aria-hidden="true"></i><span>● {{ active_monitor_session.target_name }}</span>
+      </a>
+      {% endif %}
     </div>
 
     <div class="nav-right">
