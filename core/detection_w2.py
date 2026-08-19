@@ -61,10 +61,12 @@ SUSPICIOUS_COMMANDS = [
 
 TRUSTED_SUDO_USERS = {'root', 'ibrahim', 'admin', 'ubuntu', 'deploy'}
 
-# Per-user filesystem scope, sketch/placeholder config: which absolute path prefixes
-# each login identity is allowed to touch. A user with no entry here has nothing
-# enforced against them — this is opt-in per account, not a default-deny for everyone,
-# so accounts that were never assigned a scope don't start generating alerts.
+# Per-user filesystem scope: which absolute path prefixes each login identity is
+# allowed to touch. This is only the fallback default for a ScopeViolationDetector
+# built with no arguments (direct testing, or any caller that hasn't wired up real
+# config) — app.py passes in the actual, dashboard-editable scopes loaded from the
+# UserScope table instead. A user with no entry has nothing enforced against them
+# either way — this is opt-in per account, not a default-deny for everyone.
 USER_SCOPES = {
     'user1': ['/home/user1/Downloads'],
     'user2': ['/home/user2/Downloads'],

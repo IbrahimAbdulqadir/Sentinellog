@@ -120,6 +120,35 @@ class MonitorSession(db.Model):
         }
 
 
+class UserScope(db.Model):
+    """
+    Per-user filesystem access scope: which absolute path prefixes a login identity
+    is allowed to touch, enforced by core.detection_w2.ScopeViolationDetector. This
+    is the DB-backed, dashboard-editable replacement for that module's hardcoded
+    USER_SCOPES dict — a username with no row here has nothing enforced against it.
+    """
+    __tablename__ = 'user_scope'
+    username = db.Column(db.String(100), primary_key=True)
+    paths_json = db.Column(db.Text, default='[]')  # list of allowed absolute path prefixes
+    note = db.Column(db.String(300), default='')
+    created_at = db.Column(db.String(40))
+
+    @property
+    def paths(self):
+        try:
+            return json.loads(self.paths_json)
+        except (TypeError, ValueError):
+            return []
+
+    def to_dict(self):
+        return {
+            'username': self.username,
+            'paths': self.paths,
+            'note': self.note,
+            'created_at': self.created_at,
+        }
+
+
 class BehaviorBaseline(db.Model):
     """
     What 'normal' looks like for a specific username or IP, built up over time

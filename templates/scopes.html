@@ -1,0 +1,100 @@
+{% extends "base.html" %}
+{% block title %}Scopes — SentinelLog{% endblock %}
+
+{% block content %}
+<div class="page-head flex-between">
+  <div>
+    <div class="page-title">User scopes</div>
+    <div class="page-sub">Which paths each account is allowed to touch — anything outside it is flagged by ScopeViolationDetector, regardless of the tool used to access it</div>
+  </div>
+</div>
+
+<div class="card mb-16">
+  <div class="card-head">
+    <span class="card-title">Assign a scope</span>
+  </div>
+  <div class="form-group">
+    <label class="form-label">Username</label>
+    <input type="text" class="input" id="scopeUsername" placeholder="e.g. user1">
+    <div class="form-hint">The login identity (AUID) this scope applies to</div>
+  </div>
+  <div class="form-group">
+    <label class="form-label">Allowed paths</label>
+    <textarea class="input" id="scopePaths" rows="3" placeholder="/home/user1/Downloads&#10;/home/user1/Documents"></textarea>
+    <div class="form-hint">One absolute path per line (or comma-separated) — anything this user touches outside these prefixes gets flagged</div>
+  </div>
+  <div class="form-group" style="margin-bottom:12px">
+    <label class="form-label">Note <span style="font-size:11px;color:var(--text-muted);font-weight:400">(optional)</span></label>
+    <input type="text" class="input" id="scopeNote" placeholder="e.g. tester 3, joined Aug 19">
+  </div>
+  <button class="btn btn-primary btn-sm" onclick="saveScope()"><i class="ti ti-device-floppy" aria-hidden="true"></i> Save scope</button>
+  <span id="scopeError" style="color:var(--red);font-size:13px;margin-left:10px"></span>
+</div>
+
+{% if scopes %}
+<div style="display:flex;flex-direction:column;gap:10px" id="scopeList">
+  {% for s in scopes %}
+  <div class="card card-row" id="scope-{{ s.username }}">
+    <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:14px">
+      <div style="display:flex;align-items:flex-start;gap:14px">
+        <div class="alert-icon warn" style="margin-top:2px">
+          <i class="ti ti-user-shield" aria-hidden="true"></i>
+        </div>
+        <div>
+          <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px;flex-wrap:wrap">
+            <span style="font-size:14px;font-weight:600;color:var(--text)">{{ s.username }}</span>
+            <span class="pill pill-blue">{{ s.paths|length }} allowed path{{ '' if s.paths|length == 1 else 's' }}</span>
+          </div>
+          <div class="mono" style="font-size:13px;color:var(--text-muted)">{{ s.paths|join('  •  ') }}</div>
+          {% if s.note %}<div style="font-size:12px;color:var(--text-muted);margin-top:6px">{{ s.note }}</div>{% endif %}
+        </div>
+      </div>
+      <button class="btn btn-ghost btn-sm" onclick="deleteScope('{{ s.username }}')" title="Remove scope — this account will no longer be enforced">
+        <i class="ti ti-trash" aria-hidden="true"></i>
+      </button>
+    </div>
+  </div>
+  {% endfor %}
+</div>
+{% else %}
+<div class="card">
+  <div class="empty-state">
+    <div class="empty-state-icon"><i class="ti ti-folder-lock" aria-hidden="true"></i></div>
+    <div class="empty-state-title">No scopes assigned yet</div>
+    <div class="empty-state-text">Assign a user a set of allowed paths above. Accounts with no scope here aren't enforced at all — this is opt-in per user, not a default-deny.</div>
+  </div>
+</div>
+{% endif %}
+
+<script>
+async function saveScope() {
+  const username = document.getElementById('scopeUsername').value.trim();
+  const paths = document.getElementById('scopePaths').value.trim();
+  const note = document.getElementById('scopeNote').value.trim();
+  const errEl = document.getElementById('scopeError');
+  errEl.textContent = '';
+
+  if (!username || !paths) {
+    errEl.textContent = 'Username and at least one path are required.';
+    return;
+  }
+
+  const res = await fetch('/api/scopes', {
+    method: 'POST', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({username, paths, note})
+  });
+  const d = await res.json();
+  if (!res.ok) {
+    errEl.textContent = d.error || 'Could not save scope.';
+    return;
+  }
+  window.location.reload();
+}
+
+async function deleteScope(username) {
+  await fetch(`/api/scopes/${encodeURIComponent(username)}/delete`, {method: 'POST'});
+  const row = document.getElementById(`scope-${username}`);
+  if (row) row.remove();
+}
+</script>
+{% endblock %}

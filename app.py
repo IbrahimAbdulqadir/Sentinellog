@@ -13,7 +13,7 @@ from werkzeug.security import generate_password_hash, check_password_hash
 from core.unified import UnifiedMonitor, merge_line_sources
 from core.alerting import AlertDispatcher
 from core.behavior import check_login_behavior, check_command_behavior
-from models import db, AdminUser, MonitorSession, AlertRecord, BehaviorBaseline, IPBlock
+from models import db, AdminUser, MonitorSession, AlertRecord, BehaviorBaseline, IPBlock, UserScope
 from core.active_response import is_whitelisted, compute_duration, block_ip, unblock_ip
 
 load_dotenv()  # reads the .env file into environment variables
@@ -125,6 +125,46 @@ def alert_detail(alert_id):
 def blocks_board():
     records = IPBlock.query.order_by(IPBlock.id.desc()).all()
     return render_template('blocks.html', blocks=[r.to_dict() for r in records])
+
+@app.route('/scopes')
+@login_required
+def scopes_board():
+    records = UserScope.query.order_by(UserScope.username).all()
+    return render_template('scopes.html', scopes=[r.to_dict() for r in records])
+
+@app.route('/api/scopes', methods=['POST'])
+@login_required
+def api_save_scope():
+    data = request.json or {}
+    username = (data.get('username') or '').strip()
+    if not username:
+        return jsonify({'error': 'username is required'}), 400
+
+    raw_paths = data.get('paths', '')
+    if isinstance(raw_paths, str):
+        paths = [p.strip() for p in raw_paths.replace(',', '\n').split('\n') if p.strip()]
+    else:
+        paths = [p.strip() for p in raw_paths if p and p.strip()]
+    if not paths:
+        return jsonify({'error': 'at least one allowed path is required'}), 400
+
+    row = db.session.get(UserScope, username)
+    if not row:
+        row = UserScope(username=username, created_at=datetime.now().isoformat())
+        db.session.add(row)
+    row.paths_json = json.dumps(paths)
+    row.note = data.get('note', '')
+    db.session.commit()
+    return jsonify(row.to_dict())
+
+@app.route('/api/scopes/<username>/delete', methods=['POST'])
+@login_required
+def api_delete_scope(username):
+    row = db.session.get(UserScope, username)
+    if row:
+        db.session.delete(row)
+        db.session.commit()
+    return jsonify({'status': 'deleted'})
 
 
 # ─── Shared line-reading helper ─────────────────────────────────────────────
@@ -460,7 +500,8 @@ def _start_monitor_session(data):
                 # traversal, privilege escalation, and both behavioral baselines — runs
                 # together on every line, regardless of which format that line turns out
                 # to be. No upfront "what am I watching for" choice needed.
-                unified = UnifiedMonitor(on_event=on_event, on_alert=put_alert, on_behavior=on_behavior)
+                scopes = {r.username: r.paths for r in UserScope.query.all()}
+                unified = UnifiedMonitor(on_event=on_event, on_alert=put_alert, on_behavior=on_behavior, scopes=scopes)
 
                 if mode == 'agent':
                     for line in iter_agent_lines(session_id, is_running):

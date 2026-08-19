@@ -75,7 +75,7 @@ class UnifiedMonitor:
     """Runs every detector together against whatever lines it's given, regardless
     of which file or format they came from."""
 
-    def __init__(self, on_event=None, on_alert=None, on_behavior=None):
+    def __init__(self, on_event=None, on_alert=None, on_behavior=None, scopes=None):
         self.brute_force = BruteForceDetector(threshold=5, window_seconds=60)
         self.suspicious_time = SuspiciousTimeDetector()
         self.notfound_flood = NotFoundFloodDetector(threshold=20, window_seconds=60)
@@ -83,7 +83,9 @@ class UnifiedMonitor:
         self.priv_esc = PrivilegeEscalationDetector()
         self.acct_switch = AccountSwitchDetector()
         self.rootshell_cmd = RootShellCommandDetector()
-        self.scope_violation = ScopeViolationDetector()
+        # `scopes` lets the caller (app.py) hand in DB-backed, dashboard-editable
+        # scopes instead of detection_w2's hardcoded USER_SCOPES default.
+        self.scope_violation = ScopeViolationDetector(scopes)
 
         self.on_event = on_event        # (kind, event) -> None
         self.on_alert = on_alert        # (Alert) -> None
