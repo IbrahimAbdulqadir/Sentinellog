@@ -31,3 +31,28 @@ Running notes on in-progress work and investigations in this repo, kept here (ra
 4. `cat /etc/crontab; ls -la /etc/cron.d/ /etc/cron.daily/`
 5. Full `cat /etc/sudoers.d/*` (previous grep only matched literal `user4`, would miss a `%maintenance` group rule)
 6. `sudo cat /home/user4/.bash_history`, `sudo cat /root/.bash_history` (if present), `lastlog -u user4`
+
+---
+
+## 2026-09-01 — tester round wrap-up + what to work on next
+
+**Context:** paused SentinelLog to pick up another project. This entry is the handoff so the thread is easy to resume.
+
+### The four-tester exercise (done)
+
+Ran SentinelLog against four real people on the `sentinellog-kali` VM (Tailscale-only, service running 24/7, tailing `/var/log/auth.log` + `/var/log/audit/audit.log`). One account each, briefs in `friend-access/user{1..4}.html`:
+
+- **user1** — no privileges, no sudo, no groups. Asked to attempt escalation and lateral `su` that the OS would refuse. Goal: confirm a *denied* attempt still alerts. Held up.
+- **user2** — one permitted sudo command (`find`). Asked to use it normally, then abuse it via `find -exec /bin/sh` to a real root shell. Both the everyday use and the abuse alerted; commands run *inside* the escalated shell were caught by the auditd root-shell watch. Held up.
+- **user3** — ordinary staff account, not on the trusted list. Asked to run sudo commands including obviously malicious ones. Every one flagged. Held up.
+- **user4** — same low access, no hints, told only that a real misconfiguration to root exists on the box. Found a route to root that SentinelLog never reported (see the Aug 20 investigation above — still open). This is the finding that matters.
+
+Also surfaced a genuine positive: the behavioural engine flagged the operator's own repeated password retries + password change as unusual for that account — an unplanned, correct hit.
+
+LinkedIn post drafted from this (kept in chat, not committed). Screenshots to be attached by Ibrahim.
+
+### Priority order when work resumes
+
+1. **Close the user4 blind spot (highest).** Blocked on box data — run the six commands in the Aug 20 entry, and just ask the tester how they did it. The deliverable is identifying the vector, then deciding which log source / detector needs to exist to see it. Everything below is secondary until this is known.
+2. **Fix `RootShellCommandDetector` false positives** (`core/detection_w2.py:467`). It can't distinguish a real escalated interactive shell from routine root session helpers (MOTD run-parts, `unix_chkpwd`), so ordinary logins risk noisy "critical" alerts. Ship this before promoting the root-shell feature further.
+3. **Then decide the next big push:** multi-tenancy / RBAC (the main structural blocker per `SYSTEM_OVERVIEW.md` §12 — single admin login, no per-customer separation) vs. broader detection coverage. Don't start either until the user4 vector is identified, since it may reshape what "more coverage" means.
