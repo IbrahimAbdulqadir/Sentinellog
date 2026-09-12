@@ -2,8 +2,9 @@
 from datetime import datetime, timedelta
 
 from core.detection_w2 import (
-    parse_nginx_line, parse_sudo_line,
+    parse_nginx_line, parse_sudo_line, parse_audit_line,
     NotFoundFloodDetector, DirectoryTraversalDetector, PrivilegeEscalationDetector,
+    RootShellCommandDetector,
     WebLogEvent, TRUSTED_SUDO_USERS,
 )
 
@@ -121,5 +122,72 @@ def test_suspicious_command_from_trusted_user_flagged_as_critical():
 def test_privesc_dedups_same_user_and_command():
     det = PrivilegeEscalationDetector()
     event = {'user': 'mallory', 'command': 'ls -la', 'timestamp': datetime(2026, 1, 15, 9, 0, 0), 'raw_line': ''}
+    assert det.process_event(event) is not None
+    assert det.process_event(event) is None
+
+
+# ─── parse_audit_line ───────────────────────────────────────────────────────
+
+def audit_line(comm, tty, auid='user4'):
+    return (
+        f'type=SYSCALL msg=audit(1755600000.123:456): arch=c000003e syscall=59 '
+        f'success=yes exit=0 ppid=1234 pid=5678 auid=1004 uid=0 gid=0 euid=0 '
+        f'suid=0 fsuid=0 egid=0 sgid=0 fsgid=0 tty={tty} ses=5 comm="{comm}" '
+        f'exe="/bin/{comm}" key="rootshell_cmd" AUID="{auid}"'
+    )
+
+
+def test_parses_actor_command_and_tty():
+    event = parse_audit_line(audit_line('bash', 'pts3'))
+    assert event['actor'] == 'user4'
+    assert event['command'] == 'bash'
+    assert event['tty'] == 'pts3'
+
+
+def test_line_without_rootshell_key_returns_none():
+    assert parse_audit_line('type=SYSCALL msg=audit(1755600000.123:456): key="other"') is None
+
+
+def test_missing_tty_field_is_none():
+    line = (
+        'type=SYSCALL msg=audit(1755600000.123:456): auid=1004 uid=0 '
+        'comm="bash" key="rootshell_cmd" AUID="user4"'
+    )
+    assert parse_audit_line(line)['tty'] is None
+
+
+# ─── RootShellCommandDetector ───────────────────────────────────────────────
+
+def test_interactive_command_with_real_tty_is_flagged():
+    det = RootShellCommandDetector()
+    event = parse_audit_line(audit_line('bash', 'pts3'))
+    alert = det.process_event(event)
+    assert alert is not None
+    assert alert.severity == 'critical'
+
+
+def test_no_controlling_tty_is_treated_as_motd_noise_and_ignored():
+    det = RootShellCommandDetector()
+    for comm in ('env', 'run-parts', '10-uname', 'uname', 'dash'):
+        event = parse_audit_line(audit_line(comm, '(none)'))
+        assert det.process_event(event) is None
+
+
+def test_unix_chkpwd_is_ignored_even_with_a_real_tty():
+    det = RootShellCommandDetector()
+    event = parse_audit_line(audit_line('unix_chkpwd', 'pts3'))
+    assert det.process_event(event) is None
+
+
+def test_trusted_actor_is_never_flagged():
+    det = RootShellCommandDetector()
+    trusted = next(iter(TRUSTED_SUDO_USERS))
+    event = parse_audit_line(audit_line('bash', 'pts3', auid=trusted))
+    assert det.process_event(event) is None
+
+
+def test_rootshell_dedups_same_actor_and_command():
+    det = RootShellCommandDetector()
+    event = parse_audit_line(audit_line('bash', 'pts3'))
     assert det.process_event(event) is not None
     assert det.process_event(event) is None

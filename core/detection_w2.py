@@ -61,6 +61,14 @@ SUSPICIOUS_COMMANDS = [
 
 TRUSTED_SUDO_USERS = {'root', 'ibrahim', 'admin', 'ubuntu', 'deploy'}
 
+# Root-owned helpers that show up in the rootshell_cmd audit trail as pure noise,
+# never as evidence of an attacker acting inside an escalated shell: unix_chkpwd
+# is sudo's own setuid password-check helper, invoked internally by the PAM stack
+# as part of authenticating a sudo attempt (denied or not) rather than typed by
+# anyone, so seeing it under a non-root auid is just collateral from sudo doing
+# its job, not a sign that auid reached a root shell.
+BENIGN_ROOT_HELPERS = {'unix_chkpwd'}
+
 # Per-user filesystem scope: which absolute path prefixes each login identity is
 # allowed to touch. This is only the fallback default for a ScopeViolationDetector
 # built with no arguments (direct testing, or any caller that hasn't wired up real
@@ -195,10 +203,13 @@ def parse_audit_line(line: str) -> Optional[dict]:
     except Exception:
         ts = datetime.now()
 
+    tty_m = re.search(r'\btty=(\S+)', line)
+
     return {
         'timestamp': ts,
         'actor': auid_m.group(1),
         'command': comm_m.group(1),
+        'tty': tty_m.group(1) if tty_m else None,
         'raw_line': line,
     }
 
@@ -472,6 +483,22 @@ class RootShellCommandDetector:
     the door (or the su session that started), not what's typed once someone
     is already inside. Requires the auditd rule described in the operator
     runbook (auid>0, auid!=unset, uid=0, execve) to actually be present.
+
+    Two sources of routine, non-malicious noise land in this same audit trail
+    and are filtered out rather than fired on:
+
+    - `tty=(none)` — a command with no controlling terminal can't be something
+      an attacker typed into an escalated interactive shell (that always has a
+      real tty attached). It's the signature of a detached root-owned process
+      PAM/session-open spawns on every login for every user, e.g. the
+      `run-parts /etc/update-motd.d` chain (env -> run-parts -> the numbered
+      motd scripts -> whatever they shell out to) that generates the login
+      banner. This is a property check, not a name allowlist, so it doesn't
+      need updating as distros change which scripts that chain happens to run.
+    - `comm` in BENIGN_ROOT_HELPERS — helpers invoked internally by sudo/PAM
+      itself (e.g. `unix_chkpwd`, sudo's setuid password-check step) rather
+      than by whatever the actor typed, so they can carry a real tty and still
+      not be evidence of anything the actor did once inside a shell.
     """
 
     def __init__(self):
@@ -483,9 +510,13 @@ class RootShellCommandDetector:
 
         actor = event.get('actor', '')
         command = event.get('command', '')
+        tty = event.get('tty')
         ts = event.get('timestamp', datetime.utcnow())
 
         if not actor or actor in TRUSTED_SUDO_USERS or actor == 'unset':
+            return None
+
+        if tty == '(none)' or command in BENIGN_ROOT_HELPERS:
             return None
 
         key = f"{actor}:{command}"

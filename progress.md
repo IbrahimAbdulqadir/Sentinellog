@@ -54,5 +54,18 @@ LinkedIn post drafted from this (kept in chat, not committed). Screenshots to be
 ### Priority order when work resumes
 
 1. **Close the user4 blind spot (highest).** Blocked on box data — run the six commands in the Aug 20 entry, and just ask the tester how they did it. The deliverable is identifying the vector, then deciding which log source / detector needs to exist to see it. Everything below is secondary until this is known.
-2. **Fix `RootShellCommandDetector` false positives** (`core/detection_w2.py:467`). It can't distinguish a real escalated interactive shell from routine root session helpers (MOTD run-parts, `unix_chkpwd`), so ordinary logins risk noisy "critical" alerts. Ship this before promoting the root-shell feature further.
+2. ~~**Fix `RootShellCommandDetector` false positives**~~ — done 2026-09-12, see entry below.
 3. **Then decide the next big push:** multi-tenancy / RBAC (the main structural blocker per `SYSTEM_OVERVIEW.md` §12 — single admin login, no per-customer separation) vs. broader detection coverage. Don't start either until the user4 vector is identified, since it may reshape what "more coverage" means.
+
+---
+
+## 2026-09-12 — fixed RootShellCommandDetector false positives
+
+**Status:** done.
+
+`RootShellCommandDetector` (`core/detection_w2.py`) couldn't tell a genuinely escalated interactive shell apart from routine root-owned session-open noise, so it risked firing "critical" on every ordinary login. Fixed with two checks, both grounded in the Aug 20 investigation's findings:
+
+- `parse_audit_line` now also captures the `tty` field. `RootShellCommandDetector` skips any event with `tty=(none)` — a command with no controlling terminal can't be something an attacker typed into an escalated interactive shell (that always has a real tty attached). This is what silently absorbs the whole MOTD `run-parts` chain (`env` → `run-parts` → numbered scripts → whatever they shell out to, e.g. `uname`) without having to hardcode script names that vary by distro.
+- Added `BENIGN_ROOT_HELPERS = {'unix_chkpwd'}` — helpers sudo/PAM invoke internally as part of its own auth flow (not something the actor typed) get skipped by name, since they can carry a real tty (inherited from the sudo invocation) and still aren't evidence of anything done inside a shell.
+
+Real escalated-shell activity (`bash`, `sh`, arbitrary commands with a real `tty=ptsN`) still fires as before — verified with new tests in `tests/test_detection_w2.py` covering `parse_audit_line`'s `tty` extraction and both suppression paths alongside a still-flagged interactive case, a trusted-actor skip, and dedup. Full suite: 59 passed.
