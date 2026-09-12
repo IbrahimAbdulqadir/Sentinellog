@@ -32,6 +32,8 @@ Running notes on in-progress work and investigations in this repo, kept here (ra
 5. Full `cat /etc/sudoers.d/*` (previous grep only matched literal `user4`, would miss a `%maintenance` group rule)
 6. `sudo cat /home/user4/.bash_history`, `sudo cat /root/.bash_history` (if present), `lastlog -u user4`
 
+**2026-09-12 addendum — one of the "external IPs" is the box itself:** Checked the current Tailscale device list (`tailscale status`) while trying to reach `sentinellog-kali` to run the commands above (it's currently offline, needs to be powered back on). Only two devices are on this tailnet: `spiderman` (100.100.144.20) and `sentinellog-kali` (100.90.132.113). That means the first "external IP" in step 1 above, `100.90.132.113` (the 08:16 failed attempt), **is sentinellog-kali's own Tailscale address** — since the box is Tailscale-only, that failed SSH attempt came from the box connecting to itself, not from another device on the network. The second IP, `100.96.169.78` (the one that later succeeded at 16:03/16:41), doesn't match any currently-listed tailnet device — either it's since been removed (plausibly the tester's own machine, cleaned up post-exercise) or it was never a listed peer to begin with. Worth asking the tester directly whether they were ever working from the console/VM itself on Aug 19, since a self-directed SSH attempt reads very differently from a remote credential-stuffing attempt. Doesn't change the working theory about the escalation vector, but changes how the two source IPs in step 1 should be read.
+
 ---
 
 ## 2026-09-01 — tester round wrap-up + what to work on next
