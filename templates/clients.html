@@ -1,0 +1,106 @@
+{% extends "base.html" %}
+{% block title %}Clients — SentinelLog{% endblock %}
+
+{% block content %}
+<div class="page-head flex-between">
+  <div>
+    <div class="page-title">Clients</div>
+    <div class="page-sub">Owner-only. Each client is a separate tenant — its member accounts only ever see monitor sessions, alerts, and blocks assigned to it</div>
+  </div>
+</div>
+
+<div class="card mb-16">
+  <div class="card-head">
+    <span class="card-title">Add a client</span>
+  </div>
+  <div class="form-group" style="margin-bottom:12px">
+    <label class="form-label">Client name</label>
+    <input type="text" class="input" id="clientName" placeholder="e.g. Acme Corp">
+  </div>
+  <button class="btn btn-primary btn-sm" onclick="createClient()"><i class="ti ti-plus" aria-hidden="true"></i> Add client</button>
+  <span id="clientError" style="color:var(--red);font-size:13px;margin-left:10px"></span>
+</div>
+
+{% if clients %}
+<div style="display:flex;flex-direction:column;gap:10px" id="clientList">
+  {% for c in clients %}
+  <div class="card card-row" id="client-{{ c.id }}">
+    <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:14px;flex-wrap:wrap">
+      <div style="display:flex;align-items:flex-start;gap:14px">
+        <div class="alert-icon warn" style="margin-top:2px">
+          <i class="ti ti-building" aria-hidden="true"></i>
+        </div>
+        <div>
+          <div style="font-size:14px;font-weight:600;color:var(--text);margin-bottom:4px">{{ c.name }}</div>
+          <div style="font-size:12px;color:var(--text-muted)">
+            {% set members = members_by_client.get(c.id, []) %}
+            {{ members|length }} account{{ '' if members|length == 1 else 's' }}
+            {% if members %} — {{ members|map(attribute='username')|join(', ') }}{% endif %}
+          </div>
+        </div>
+      </div>
+      <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+        <input type="text" class="input" style="width:140px" placeholder="username" id="user-{{ c.id }}">
+        <input type="password" class="input" style="width:140px" placeholder="password" id="pass-{{ c.id }}">
+        <button class="btn btn-ghost btn-sm" onclick="createUser({{ c.id }})">
+          <i class="ti ti-user-plus" aria-hidden="true"></i> Add account
+        </button>
+      </div>
+    </div>
+    <div class="mono" id="userError-{{ c.id }}" style="color:var(--red);font-size:12px;margin-top:8px"></div>
+  </div>
+  {% endfor %}
+</div>
+{% else %}
+<div class="card">
+  <div class="empty-state">
+    <div class="empty-state-icon"><i class="ti ti-building" aria-hidden="true"></i></div>
+    <div class="empty-state-title">No clients yet</div>
+    <div class="empty-state-text">Add a client above, then create a login for them — their account will only ever see monitor sessions assigned to that client.</div>
+  </div>
+</div>
+{% endif %}
+
+<script>
+async function createClient() {
+  const name = document.getElementById('clientName').value.trim();
+  const errEl = document.getElementById('clientError');
+  errEl.textContent = '';
+  if (!name) {
+    errEl.textContent = 'Client name is required.';
+    return;
+  }
+  const res = await fetch('/api/clients', {
+    method: 'POST', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({name})
+  });
+  const d = await res.json();
+  if (!res.ok) {
+    errEl.textContent = d.error || 'Could not create client.';
+    return;
+  }
+  window.location.reload();
+}
+
+async function createUser(clientId) {
+  const username = document.getElementById(`user-${clientId}`).value.trim();
+  const password = document.getElementById(`pass-${clientId}`).value;
+  const errEl = document.getElementById(`userError-${clientId}`);
+  errEl.textContent = '';
+  if (!username || !password) {
+    errEl.textContent = 'Username and password are both required.';
+    return;
+  }
+  const res = await fetch(`/api/clients/${clientId}/users`, {
+    method: 'POST', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({username, password})
+  });
+  const d = await res.json();
+  if (!res.ok) {
+    errEl.textContent = d.error || 'Could not create account.';
+    return;
+  }
+  window.location.reload();
+}
+</script>
+{% endblock %}

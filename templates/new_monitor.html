@@ -23,6 +23,19 @@
         <div class="form-hint">Used for identification on the dashboard</div>
       </div>
 
+      {% if current_user.is_owner and clients %}
+      <div class="form-group">
+        <label class="form-label">Client <span style="font-size:11px;color:var(--text-muted);font-weight:400">(optional)</span></label>
+        <select class="input" id="clientId">
+          <option value="">— Unassigned —</option>
+          {% for c in clients %}
+          <option value="{{ c.id }}">{{ c.name }}</option>
+          {% endfor %}
+        </select>
+        <div class="form-hint">Which client this monitor belongs to — their accounts will only see sessions assigned to them</div>
+      </div>
+      {% endif %}
+
       <div class="form-group" style="margin-bottom:0">
         <label class="form-label">Input mode</label>
         <div class="grid-3" style="gap:12px;margin-top:8px">
@@ -343,6 +356,7 @@ async function startMonitor() {
       target_name: document.getElementById('targetName').value || 'Unnamed Source',
       log_type: 'auto',
       server_ip: document.getElementById('serverIp').value,
+      client_id: document.getElementById('clientId') ? document.getElementById('clientId').value : '',
       mode: currentMode,
       filepath: paths.join('\n'),
       delay: 0.15,

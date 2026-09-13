@@ -78,12 +78,41 @@ class IPBlock(db.Model):
         }
 
 
+class Client(db.Model):
+    """
+    A customer/tenant SentinelLog is watching systems on behalf of. Every
+    MonitorSession and every non-owner AdminUser belongs to exactly one of
+    these, which is what lets one dashboard serve more than one client
+    without their data mixing — see AdminUser.role/client_id below.
+    """
+    __tablename__ = 'client'
+    id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String(200), nullable=False)
+    created_at = db.Column(db.String(40))
+
+    def to_dict(self):
+        return {'id': self.id, 'name': self.name, 'created_at': self.created_at}
+
+
 class AdminUser(UserMixin, db.Model):
-    """There's only ever one row in this table — the single dashboard login."""
+    """
+    A dashboard login. The first one created (via .env on initial setup) is
+    always an 'owner' with client_id=None, which preserves the original
+    single-admin behavior exactly — an owner still sees every client's data,
+    same as before this table had more than one row. Additional 'member'
+    accounts are scoped to exactly one Client via client_id and only ever see
+    that client's monitor sessions, alerts, and blocks.
+    """
     __tablename__ = 'admin_user'
     id = db.Column(db.Integer, primary_key=True)
     username = db.Column(db.String(80), unique=True, nullable=False)
     password_hash = db.Column(db.String(255), nullable=False)
+    role = db.Column(db.String(20), default='owner')  # 'owner' or 'member'
+    client_id = db.Column(db.Integer, db.ForeignKey('client.id'), nullable=True)
+
+    @property
+    def is_owner(self):
+        return self.role == 'owner'
 
 
 class MonitorSession(db.Model):
@@ -98,6 +127,7 @@ class MonitorSession(db.Model):
     started_at = db.Column(db.String(40))
     running = db.Column(db.Boolean, default=False)
     agent_key = db.Column(db.String(64), default='')  # remote-agent push auth token, 'agent' mode only
+    client_id = db.Column(db.Integer, db.ForeignKey('client.id'), nullable=True)  # which tenant this belongs to; None = unassigned/legacy
 
     # Alert channel credentials — encrypted at rest, see EncryptedString above
     telegram_token = db.Column(EncryptedString(500), default='')

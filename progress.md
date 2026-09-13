@@ -93,4 +93,27 @@ Real escalated-shell activity (`bash`, `sh`, arbitrary commands with a real `tty
 5. **Simple exportable activity report** (CSV/PDF, "here's what we watched, here's what happened this month") — lighter-weight than real NDPR/POPIA compliance mapping, but gives a non-technical client something tangible to show.
 6. **Consider the business model, not just the code** — packaging this as a managed "we watch it for you" service (Ibrahim running it on the client's behalf) sidesteps needing to out-build Wazuh feature-for-feature, since the client is asking a person, not evaluating software.
 
-No commitment yet on which of 1-5 to build first — flagged to Ibrahim as the next decision point.
+**Decision (2026-09-13): starting with #1, RBAC / multi-tenancy.** It's the unlock for everything else in this list — no other item matters for "serve more than one client" until one admin login stops being the entire access model. Work begins below.
+
+---
+
+## 2026-09-13 — RBAC / multi-tenancy (first slice shipped)
+
+**Status:** done for this slice — core scoping is real and tested; a few follow-ups remain (listed below).
+
+**Goal:** move SentinelLog from a single hardcoded `AdminUser` to a model that supports multiple accounts, each scoped to the clients/monitor sessions they should see, so one dashboard can eventually serve more than one client without one admin seeing everyone else's alerts.
+
+**What shipped:**
+- New `Client` model (`models.py`) — one row per tenant. `AdminUser` gained `role` ('owner' or 'member') and `client_id`. The very first admin account (created from `.env` on first run) stays `role='owner', client_id=None`, which preserves the original single-admin behavior exactly — an owner still sees every client's data, nothing changes for the existing login. `MonitorSession` gained `client_id` too. Existing databases get these columns bolted on by hand in `init_db()`, following the same pattern already used for `agent_key`.
+- Scoping helpers in `app.py` (`_scope_sessions_query`, `_scope_alerts_query`, `_scope_blocks_query`, `_visible_session`) — a member only ever sees rows tied to their own `client_id`; an owner is unfiltered. Applied across the dashboard's live-session nav tab, `/alerts`, `/alerts/<id>`, `/blocks`, `/monitor/<id>`, and every `/api/monitor/<id>/...`, `/api/sessions`, `/api/alerts`, `/api/blocks` endpoint. A member hitting another client's session id gets the same 404 as a nonexistent one — never a 403 that would confirm someone else's id is real.
+- **Found and fixed a real bug while testing this**: `/api/monitor/stop/<session_id>` had no ownership check at all before this — any logged-in account could stop *any* session by guessing its id. Now gated the same way as the rest.
+- `_start_monitor_session` now stamps `client_id` — a member's new/resumed sessions are silently forced onto their own client no matter what they send in the request; only an owner can pick a client (via a new dropdown on the New Monitor form, only shown to owners with at least one client to choose from).
+- Minimal owner-only admin UI at `/admin/clients` (`templates/clients.html`, nav link gated on `current_user.is_owner`) — create a client, then create a login for it. That's the only way client accounts get created right now.
+- `tests/test_rbac.py` — 9 new tests using Flask's test client (a first for this codebase; every prior test exercised `core/` modules directly). Covers: member sees only their own sessions, owner sees everything, member 404s on another client's monitor page, member can't stop another client's session, member can't reach `/admin/clients` or the client-creation APIs, owner can create a client + scoped member, and a member can't smuggle a session onto another client's `client_id`. Full suite: 67 passed.
+- **Test-isolation bug found and fixed along the way**: Flask-SQLAlchemy binds its engine to whatever `SQLALCHEMY_DATABASE_URI` is set to the first time the DB is touched, and `app.py` set that at import time from a hardcoded path — so the first version of these tests silently wrote straight into the real `sentinellog.db` (had to manually delete the leaked `acme_user`/`globex_user`/test `Client`/`sess1`/`sess2` rows it left behind). Fixed by making the URI overridable via a `DATABASE_URL` env var, set before `app` is imported in the test file, so tests can never touch the real database again.
+
+**Known follow-ups, not done in this slice:**
+- `UserScope` (the Scopes page) is still keyed globally by OS username, not per-client — two different clients' boxes that happen to both have a "user1" account would share one scope config. Needs a composite key (`client_id` + `username`) to be truly multi-tenant.
+- No edit/delete yet for clients or member accounts — creation only.
+- No "which client am I" indicator in the UI for a member account — functionally scoped correctly, just not labeled on screen yet.
+- `/api/ingest/<session_id>` (remote agent push) deliberately left untouched — it authenticates via its own per-session `agent_key`, not a logged-in user, so tenant scoping doesn't apply there.

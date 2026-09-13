@@ -2,18 +2,19 @@
 SentinelLog - Flask Application
 """
 import os, json, uuid, queue, threading, time, secrets, hmac
+from functools import wraps
 from collections import deque
 from datetime import datetime, timedelta
 from dataclasses import asdict
 from dotenv import load_dotenv
-from flask import Flask, render_template, request, jsonify, Response, stream_with_context, redirect, url_for
+from flask import Flask, render_template, request, jsonify, Response, stream_with_context, redirect, url_for, abort
 from flask_login import LoginManager, login_user, logout_user, login_required, current_user
 from werkzeug.security import generate_password_hash, check_password_hash
 
 from core.unified import UnifiedMonitor, merge_line_sources
 from core.alerting import AlertDispatcher
 from core.behavior import check_login_behavior, check_command_behavior
-from models import db, AdminUser, MonitorSession, AlertRecord, BehaviorBaseline, IPBlock, UserScope
+from models import db, AdminUser, MonitorSession, AlertRecord, BehaviorBaseline, IPBlock, UserScope, Client
 from core.active_response import is_whitelisted, compute_duration, block_ip, unblock_ip
 
 load_dotenv()  # reads the .env file into environment variables
@@ -21,7 +22,9 @@ load_dotenv()  # reads the .env file into environment variables
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 app = Flask(__name__)
 app.secret_key = os.environ.get('SECRET_KEY', 'dev-only-fallback-key')
-app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///' + os.path.join(BASE_DIR, 'sentinellog.db')
+app.config['SQLALCHEMY_DATABASE_URI'] = os.environ.get('DATABASE_URL') or (
+    'sqlite:///' + os.path.join(BASE_DIR, 'sentinellog.db')
+)
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 db.init_app(app)
 
@@ -39,6 +42,56 @@ def load_user(user_id):
     return db.session.get(AdminUser, int(user_id))
 
 
+def owner_required(f):
+    """Gates client-management routes to owner accounts only — a member account
+    manages nothing, it just watches the one client it's scoped to."""
+    @wraps(f)
+    @login_required
+    def wrapper(*args, **kwargs):
+        if not current_user.is_owner:
+            abort(404)
+        return f(*args, **kwargs)
+    return wrapper
+
+
+def _scope_sessions_query():
+    """Every list of sessions an owner sees is unfiltered (same as the original
+    single-admin behavior); a member only ever sees their own client's rows."""
+    q = MonitorSession.query
+    if not current_user.is_owner:
+        q = q.filter_by(client_id=current_user.client_id)
+    return q
+
+
+def _scope_alerts_query():
+    q = AlertRecord.query
+    if not current_user.is_owner:
+        q = q.join(MonitorSession, AlertRecord.session_id == MonitorSession.id) \
+             .filter(MonitorSession.client_id == current_user.client_id)
+    return q
+
+
+def _scope_blocks_query():
+    q = IPBlock.query
+    if not current_user.is_owner:
+        q = q.join(MonitorSession, IPBlock.session_id == MonitorSession.id) \
+             .filter(MonitorSession.client_id == current_user.client_id)
+    return q
+
+
+def _visible_session(session_id):
+    """Fetches a MonitorSession by id, but returns None if the current account
+    isn't allowed to see it — a member account guessing another client's session
+    id must get exactly the same 'not found' response as a session that doesn't
+    exist at all, not a 403 that confirms someone else's id is real."""
+    row = db.session.get(MonitorSession, session_id)
+    if not row:
+        return None
+    if not current_user.is_owner and row.client_id != current_user.client_id:
+        return None
+    return row
+
+
 def init_db():
     with app.app_context():
         db.create_all()
@@ -50,6 +103,21 @@ def init_db():
         )}
         if 'agent_key' not in existing_cols:
             db.session.execute(db.text("ALTER TABLE monitor_session ADD COLUMN agent_key VARCHAR(64) DEFAULT ''"))
+            db.session.commit()
+        if 'client_id' not in existing_cols:
+            db.session.execute(db.text("ALTER TABLE monitor_session ADD COLUMN client_id INTEGER"))
+            db.session.commit()
+        admin_cols = {row[1] for row in db.session.execute(
+            db.text("PRAGMA table_info(admin_user)")
+        )}
+        if 'role' not in admin_cols:
+            # Every pre-existing login predates multi-tenancy entirely, so it was
+            # always meant to see everything — 'owner' is the only value that
+            # preserves that behavior unchanged.
+            db.session.execute(db.text("ALTER TABLE admin_user ADD COLUMN role VARCHAR(20) DEFAULT 'owner'"))
+            db.session.commit()
+        if 'client_id' not in admin_cols:
+            db.session.execute(db.text("ALTER TABLE admin_user ADD COLUMN client_id INTEGER"))
             db.session.commit()
         # A session's `running` flag is only ever cleared by its own worker thread's
         # `finally` block — which a restart (SIGTERM) doesn't give daemon threads the
@@ -79,7 +147,7 @@ def inject_active_session():
     """
     if not current_user.is_authenticated:
         return {}
-    row = MonitorSession.query.filter_by(running=True).order_by(MonitorSession.started_at.desc()).first()
+    row = _scope_sessions_query().filter_by(running=True).order_by(MonitorSession.started_at.desc()).first()
     return {'active_monitor_session': row}
 
 
@@ -114,12 +182,13 @@ def index():
 @app.route('/monitor/new')
 @login_required
 def new_monitor():
-    return render_template('new_monitor.html')
+    clients = Client.query.order_by(Client.name).all() if current_user.is_owner else []
+    return render_template('new_monitor.html', clients=clients)
 
 @app.route('/monitor/<session_id>')
 @login_required
 def monitor_view(session_id):
-    sess = db.session.get(MonitorSession, session_id)
+    sess = _visible_session(session_id)
     if not sess:
         return render_template('404.html'), 404
     return render_template('monitor.html', session_id=session_id)
@@ -127,7 +196,7 @@ def monitor_view(session_id):
 @app.route('/alerts')
 @login_required
 def alerts_board():
-    records = AlertRecord.query.order_by(AlertRecord.timestamp.desc()).all()
+    records = _scope_alerts_query().order_by(AlertRecord.timestamp.desc()).all()
     flat = [r.to_dict() for r in records]
     return render_template('alerts.html', alerts=flat)
 
@@ -135,7 +204,7 @@ def alerts_board():
 @login_required
 def alert_detail(alert_id):
     record = db.session.get(AlertRecord, alert_id)
-    if not record:
+    if not record or not _visible_session(record.session_id):
         return render_template('404.html'), 404
     block = IPBlock.query.filter_by(alert_id=alert_id).order_by(IPBlock.id.desc()).first()
     return render_template('alert_detail.html', alert=record.to_dict(), session_id=record.session_id,
@@ -144,7 +213,7 @@ def alert_detail(alert_id):
 @app.route('/blocks')
 @login_required
 def blocks_board():
-    records = IPBlock.query.order_by(IPBlock.id.desc()).all()
+    records = _scope_blocks_query().order_by(IPBlock.id.desc()).all()
     return render_template('blocks.html', blocks=[r.to_dict() for r in records])
 
 @app.route('/scopes')
@@ -186,6 +255,53 @@ def api_delete_scope(username):
         db.session.delete(row)
         db.session.commit()
     return jsonify({'status': 'deleted'})
+
+
+# ─── Client / member management (owner only) ────────────────────────────────
+
+@app.route('/admin/clients')
+@owner_required
+def clients_board():
+    clients = Client.query.order_by(Client.name).all()
+    members_by_client = {}
+    for u in AdminUser.query.filter(AdminUser.role == 'member').all():
+        members_by_client.setdefault(u.client_id, []).append(u)
+    return render_template('clients.html', clients=clients, members_by_client=members_by_client)
+
+
+@app.route('/api/clients', methods=['POST'])
+@owner_required
+def api_create_client():
+    name = (request.json or {}).get('name', '').strip()
+    if not name:
+        return jsonify({'error': 'name is required'}), 400
+    row = Client(name=name, created_at=datetime.now().isoformat())
+    db.session.add(row)
+    db.session.commit()
+    return jsonify(row.to_dict())
+
+
+@app.route('/api/clients/<int:client_id>/users', methods=['POST'])
+@owner_required
+def api_create_client_user(client_id):
+    if not db.session.get(Client, client_id):
+        return jsonify({'error': 'Client not found'}), 404
+    data = request.json or {}
+    username = (data.get('username') or '').strip()
+    password = data.get('password') or ''
+    if not username or not password:
+        return jsonify({'error': 'username and password are required'}), 400
+    if AdminUser.query.filter_by(username=username).first():
+        return jsonify({'error': 'That username is already taken'}), 400
+    user = AdminUser(
+        username=username,
+        password_hash=generate_password_hash(password),
+        role='member',
+        client_id=client_id,
+    )
+    db.session.add(user)
+    db.session.commit()
+    return jsonify({'id': user.id, 'username': user.username, 'client_id': user.client_id})
 
 
 # ─── Shared line-reading helper ─────────────────────────────────────────────
@@ -301,6 +417,22 @@ def api_start_monitor():
     return jsonify(_start_monitor_session(request.json))
 
 
+def _resolve_client_id(data):
+    """
+    A member account can only ever create/resume sessions under its own client —
+    whatever it sends is ignored so it can't assign its own monitor to someone
+    else's tenant. An owner has no client of their own, so they pick one from
+    the form (or leave a session unassigned) via an explicit client_id.
+    """
+    if not current_user.is_owner:
+        return current_user.client_id
+    raw = data.get('client_id')
+    try:
+        return int(raw) if raw not in (None, '', 'none') else None
+    except (TypeError, ValueError):
+        return None
+
+
 def _start_monitor_session(data):
     """
     Shared by both starting a brand-new monitor from the form, and resuming
@@ -324,6 +456,7 @@ def _start_monitor_session(data):
         started_at=datetime.now().isoformat(),
         running=False,
         agent_key=agent_key,
+        client_id=_resolve_client_id(data),
         telegram_token=data.get('telegram_token', ''),
         telegram_chat_id=data.get('telegram_chat_id', ''),
         email_username=data.get('email_username', ''),
@@ -590,7 +723,7 @@ def api_resume_monitor(session_id):
     once the process restarts or it finishes, but its settings live on in the
     database, so we just start fresh with them and hand back a new session_id.
     """
-    old = db.session.get(MonitorSession, session_id)
+    old = _visible_session(session_id)
     if not old:
         return jsonify({'error': 'Original session not found'}), 404
     result = _start_monitor_session({
@@ -605,6 +738,7 @@ def api_resume_monitor(session_id):
         'email_username': old.email_username,
         'email_password': old.email_password,
         'email_to': old.email_to,
+        'client_id': old.client_id,
     })
     return jsonify(result)
 
@@ -615,6 +749,8 @@ def api_session_alerts(session_id):
     """Historical alerts already saved for this specific session — used to
     populate the Live Alerts panel when a monitor page is opened after the
     fact, instead of only showing alerts that stream in after the page loads."""
+    if not _visible_session(session_id):
+        return jsonify({'error': 'Not found'}), 404
     records = AlertRecord.query.filter_by(session_id=session_id).order_by(AlertRecord.timestamp.desc()).all()
     return jsonify([r.to_dict() for r in records])
 
@@ -625,6 +761,8 @@ def api_session_feed(session_id):
     """Recent raw log_event lines still held in memory for this session — lets a
     browser that navigates away and back replay what the live feed panel missed,
     instead of it looking like the session restarted."""
+    if not _visible_session(session_id):
+        return jsonify({'error': 'Not found'}), 404
     stream = active_streams.get(session_id)
     if not stream:
         return jsonify([])
@@ -634,6 +772,8 @@ def api_session_feed(session_id):
 @app.route('/api/monitor/<session_id>/stream')
 @login_required
 def api_stream(session_id):
+    if not _visible_session(session_id):
+        return jsonify({'error': 'Not found'}), 404
     stream = active_streams.get(session_id)
     if not stream:
         return jsonify({'error': 'This session is not currently live in this process (e.g. the server restarted). Historical alerts are still saved.'}), 404
@@ -660,21 +800,22 @@ def api_stream(session_id):
 @app.route('/api/monitor/stop/<session_id>', methods=['POST'])
 @login_required
 def api_stop_monitor(session_id):
+    row = _visible_session(session_id)
+    if not row:
+        return jsonify({'error': 'Not found'}), 404
     if session_id in active_streams:
         active_streams[session_id]['running'] = False
         # If nobody ever connected to this session's live view, its worker is still
         # blocked waiting for that — wake it up now instead of leaving it stuck for 30s.
         active_streams[session_id]['ready'].set()
-    row = db.session.get(MonitorSession, session_id)
-    if row:
-        row.running = False
-        db.session.commit()
+    row.running = False
+    db.session.commit()
     return jsonify({'status': 'stopped'})
 
 @app.route('/api/monitor/<session_id>/status')
 @login_required
 def api_monitor_status(session_id):
-    row = db.session.get(MonitorSession, session_id)
+    row = _visible_session(session_id)
     if not row:
         return jsonify({'error': 'Not found'}), 404
     return jsonify({
@@ -697,7 +838,7 @@ def api_monitor_status(session_id):
 @app.route('/api/sessions')
 @login_required
 def api_sessions():
-    rows = MonitorSession.query.order_by(MonitorSession.started_at.desc()).all()
+    rows = _scope_sessions_query().order_by(MonitorSession.started_at.desc()).all()
     return jsonify([{
         'id': r.id,
         'target_name': r.target_name,
@@ -710,13 +851,13 @@ def api_sessions():
 @app.route('/api/alerts')
 @login_required
 def api_all_alerts():
-    records = AlertRecord.query.order_by(AlertRecord.timestamp.desc()).all()
+    records = _scope_alerts_query().order_by(AlertRecord.timestamp.desc()).all()
     return jsonify([r.to_dict() for r in records])
 
 @app.route('/api/blocks')
 @login_required
 def api_all_blocks():
-    records = IPBlock.query.order_by(IPBlock.id.desc()).all()
+    records = _scope_blocks_query().order_by(IPBlock.id.desc()).all()
     return jsonify([r.to_dict() for r in records])
 
 @app.route('/api/telegram/test', methods=['POST'])
