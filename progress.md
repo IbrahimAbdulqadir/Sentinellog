@@ -71,3 +71,26 @@ LinkedIn post drafted from this (kept in chat, not committed). Screenshots to be
 - Added `BENIGN_ROOT_HELPERS = {'unix_chkpwd'}` — helpers sudo/PAM invoke internally as part of its own auth flow (not something the actor typed) get skipped by name, since they can carry a real tty (inherited from the sudo invocation) and still aren't evidence of anything done inside a shell.
 
 Real escalated-shell activity (`bash`, `sh`, arbitrary commands with a real `tty=ptsN`) still fires as before — verified with new tests in `tests/test_detection_w2.py` covering `parse_audit_line`'s `tty` extraction and both suppression paths alongside a still-flagged interactive case, a trusted-actor skip, and dedup. Full suite: 59 passed.
+
+---
+
+## 2026-09-13 — strategic assessment: a client wants "monitor every activity on a system"
+
+**Status:** decision pending — this is a positioning question, not a coded feature yet.
+
+**Trigger:** A potential client asked whether SentinelLog could monitor "every activity on a system," and Ibrahim asked for a blunt, research-backed read on whether that's a good direction or whether the project is a dead end.
+
+**Research-backed conclusion:** "Monitor everything" is a full-EDR ask (all process execution, network connections, broad file-integrity monitoring), not a config tweak — it needs new parsers/detectors, a storage rework (SQLite + in-memory queues don't hold up once you stop filtering auditd; full auditing runs gigabytes/day and hundreds of events/sec vs. ~10-50MB/day for the narrow rules SentinelLog runs today), and RBAC/multi-tenancy if it's ever going to serve more than one client from one dashboard (`SYSTEM_OVERVIEW.md` §12). More importantly: **Wazuh** (free, open-source, GPLv2/Apache 2.0, no feature gating) already does exactly this — host IDS, log analysis, file integrity monitoring, vulnerability detection, compliance mapping — and is specifically recommended for 1-5 person teams on a tight budget. Racing Wazuh on breadth of telemetry is a fight a solo project loses; Splunk pricing was never the real competitor for this ask, Wazuh's $0 price tag is.
+
+**Where SentinelLog is NOT useless:** narrow-scope (SSH/sudo/web) log watching with genuine per-identity behavioral baselining, AI plain-language triage aimed at non-technical readers, and dead-simple self-hosting (no Elasticsearch/OpenSearch cluster, unlike Wazuh's biggest deployment complaint) are real, current strengths a generic tool doesn't emphasize as cleanly.
+
+**Agreed direction: don't out-breadth Wazuh — compete on usability for people who aren't a SOC.** Positioning: "the SIEM for someone with 1-2 boxes and no security team," not "monitor literally everything for an enterprise." Enhancement roadmap discussed, in priority order:
+
+1. **RBAC / multi-tenancy** — still the hard blocker to selling this to more than one client from one dashboard; needed before "manage this for several clients" is even possible.
+2. **Make AI triage the default lens, not a per-alert afterthought** — a daily/weekly plain-English digest ("here's what happened on your server this week") pushed via the existing Telegram/Email channels. This is the sharpest current differentiator (Wazuh doesn't have this baked in) and the most visible thing to demo to a non-technical client.
+3. **Mobile-first alerting** — WhatsApp/SMS (already flagged as a gap in `SYSTEM_OVERVIEW.md` §12), since the target market (small business, not enterprise SOC) leans mobile over Slack/PagerDuty-style channels Wazuh defaults to.
+4. **Incremental telemetry widening, cheaply** — not a raw auditd firehose. Reuse the existing behavioral-baseline pattern (`core/behavior.py`) for a small number of high-signal additions: basic network-connection anomaly detection (new remote IP a service has never talked to) and file-integrity hashing for an explicit small set of critical files, rather than watching the whole filesystem.
+5. **Simple exportable activity report** (CSV/PDF, "here's what we watched, here's what happened this month") — lighter-weight than real NDPR/POPIA compliance mapping, but gives a non-technical client something tangible to show.
+6. **Consider the business model, not just the code** — packaging this as a managed "we watch it for you" service (Ibrahim running it on the client's behalf) sidesteps needing to out-build Wazuh feature-for-feature, since the client is asking a person, not evaluating software.
+
+No commitment yet on which of 1-5 to build first — flagged to Ibrahim as the next decision point.
