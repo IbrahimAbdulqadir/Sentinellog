@@ -73,7 +73,7 @@
     }
     :focus-visible { outline: 2px solid var(--cyan); outline-offset: 2px; border-radius: 3px; }
 
-    /* ── Isometric grid floor — the 3D system's signature ambient backdrop ── */
+    /* ── Isometric grid floor - the 3D system's signature ambient backdrop ── */
     .grid-floor { position: fixed; inset: 0; z-index: 0; overflow: hidden; pointer-events: none; }
     .grid-floor .plane {
       position: absolute; left: -20%; right: -20%; bottom: -30%; height: 75%;
@@ -111,12 +111,12 @@
     @keyframes slArrive { 0% { opacity: 0; transform: translateX(-10px); } 100% { opacity: 1; transform: translateX(0); } }
     @media (prefers-reduced-motion: reduce) { .logo .spin { animation: none; } }
 
-    /* ── Entrance sequence — the dashboard waking up, applied via JS on load ── */
+    /* ── Entrance sequence - the dashboard waking up, applied via JS on load ── */
     .fade-in-up { opacity: 0; transform: translateY(14px); animation: fadeInUp .55s cubic-bezier(.16,1,.3,1) forwards; }
     @keyframes fadeInUp { to { opacity: 1; transform: translateY(0); } }
     @media (prefers-reduced-motion: reduce) { .fade-in-up { opacity: 1; transform: none; animation: none; } }
 
-    /* ── A live alert landing — the moment the system catches something ── */
+    /* ── A live alert landing - the moment the system catches something ── */
     .alert-arrive { animation: alertArrive .6s cubic-bezier(.16,1,.3,1); }
     @keyframes alertArrive {
       0% { opacity: 0; transform: translateX(-14px); background: rgba(var(--red-rgb),.12); }
@@ -240,7 +240,7 @@
     .grid-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 16px; }
     .row-2 { display: grid; grid-template-columns: 1.2fr 1fr; gap: 16px; }
     /* A main column + fixed-width sidebar that collapses to one column on
-       narrow screens — width set per-usage via --sidebar-w, e.g.
+       narrow screens - width set per-usage via --sidebar-w, e.g.
        style="--sidebar-w:320px" alongside class="split-sidebar". */
     .split-sidebar { display: grid; grid-template-columns: 1fr var(--sidebar-w, 320px); gap: 16px; }
 
@@ -267,7 +267,7 @@
     .rule-bf { background: var(--red-bg); color: var(--red-text); }
     .rule-st { background: var(--amber-bg); color: var(--amber-text); }
 
-    /* ── Terminal / mono content — never let a long line force page-wide scroll ── */
+    /* ── Terminal / mono content - never let a long line force page-wide scroll ── */
     .terminal { overflow-x: auto; }
     pre, code { overflow-wrap: anywhere; }
 
@@ -283,12 +283,12 @@
       .nav-right .btn { padding: 8px; }
     }
     @media (max-width: 600px) {
-      /* Stay a 2x2 grid rather than stacking to one column — these tiles only
+      /* Stay a 2x2 grid rather than stacking to one column - these tiles only
          hold a label and a number, a full-width row each is wasted space. */
       .metrics { grid-template-columns: repeat(2,1fr); gap: 10px; }
       .metric { padding: 14px 16px; }
       .metric-value { font-size: 24px; }
-      /* Same reasoning for the mode/log-type picker cards — compact enough
+      /* Same reasoning for the mode/log-type picker cards - compact enough
          to sit two-up instead of a long single-file scroll. */
       .grid-3 { grid-template-columns: repeat(2,1fr); gap: 10px; }
       .mode-card { padding: 13px; }
@@ -357,14 +357,14 @@
 
   <script>
     function timeAgo(isoStr) {
-      if (!isoStr) return '—';
+      if (!isoStr) return '-';
       const diff = Math.floor((Date.now() - new Date(isoStr)) / 1000);
       if (diff < 60) return `${diff}s ago`;
       if (diff < 3600) return `${Math.floor(diff/60)}m ago`;
       return `${Math.floor(diff/3600)}h ago`;
     }
 
-    // The dashboard waking up — every card/metric/mode-card stages in on load,
+    // The dashboard waking up - every card/metric/mode-card stages in on load,
     // and every numeric metric counts up from zero instead of just appearing.
     (function () {
       const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;

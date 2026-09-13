@@ -1,5 +1,5 @@
 """
-SentinelLog — Core Detection Engine
+SentinelLog - Core Detection Engine
 Week 1: Linux auth.log parsing, brute force detection, suspicious login time detection
 """
 
@@ -49,7 +49,7 @@ class Alert:
 # Matches: "Jan 15 02:14:01 webserver sshd[12453]: Failed password for root from 1.2.3.4 port 51234 ssh2"
 # process allows hyphens because modern OpenSSH (9.6+, current Debian/Kali) forks a
 # per-connection handler literally named "sshd-session" that does the actual logging,
-# not "sshd" itself — a bare \w+ can't match the hyphen and silently drops every line.
+# not "sshd" itself - a bare \w+ can't match the hyphen and silently drops every line.
 LOG_LINE_PATTERN = re.compile(
     r'^(?P<month>\w{3})\s+(?P<day>\d{1,2})\s+(?P<time>\d{2}:\d{2}:\d{2})\s+'
     r'(?P<hostname>\S+)\s+(?P<process>[\w-]+)\[(?P<pid>\d+)\]:\s+(?P<message>.*)$'
@@ -233,7 +233,7 @@ class SuspiciousTimeDetector:
                     title=f"Unusual login time for {username}",
                     description=(
                         f"User '{username}' logged in at {event.timestamp.strftime('%H:%M')} "
-                        f"from {event.source_ip} — outside their normal login hours. "
+                        f"from {event.source_ip} - outside their normal login hours. "
                         f"This account has never authenticated during night hours "
                         f"({self.night_start:02d}:00-{self.night_end:02d}:00) before."
                     ),
@@ -313,7 +313,7 @@ class LogMonitor:
         Replay a log file line-by-line with a small delay between lines,
         simulating live tail for demo/testing purposes.
 
-        should_continue: optional external callable — when provided, the loop
+        should_continue: optional external callable - when provided, the loop
         stops as soon as it returns False, not just when self._running does.
         Without this, calling stop() from another thread has no effect on an
         already-running tail/replay loop until it happens to check self._running
@@ -341,10 +341,10 @@ class LogMonitor:
 
     def tail_file(self, filepath: str, poll_interval: float = 1.0, should_continue=None):
         """
-        True live tail — watches a real log file (e.g. /var/log/auth.log)
+        True live tail - watches a real log file (e.g. /var/log/auth.log)
         and processes new lines as they're appended.
 
-        should_continue: see replay_file's docstring — same reasoning applies.
+        should_continue: see replay_file's docstring - same reasoning applies.
         """
         self._running = True
         with open(filepath, 'r', encoding='utf-8', errors='ignore') as f:
@@ -364,7 +364,7 @@ class LogMonitor:
 
     def consume(self, lines, assumed_year: int = None):
         """
-        Process lines from any iterable/generator — not a local file. This is what lets
+        Process lines from any iterable/generator - not a local file. This is what lets
         a remote agent's pushed lines run through the exact same parsing and detection
         rules as a local tail/replay, instead of duplicating the logic.
         """

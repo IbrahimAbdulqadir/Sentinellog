@@ -15,8 +15,8 @@ SentinelLog is a free, open-source alternative that watches your server logs in 
 - **Suspicious login time detection**: learns each user's normal login hours and flags authentication during night hours (00:00–05:00) for accounts with no prior night-time history
 - **Web attack detection**: 404 scanning (site enumeration) and directory traversal attempts on Nginx/Apache logs
 - **Privilege escalation detection**: flags unexpected users or dangerous commands in `sudo` logs
-- **Behavioral baselines**: learns what's actually normal per account (known IPs, login hours, commands) and flags genuine deviation from *that account's* history, not just fixed thresholds — persists across sessions and restarts
-- **AI triage**: turns a raw rule match into a plain-language verdict a non-technical business owner can act on (`OPENAI_API_KEY`, optional — everything else works without it)
+- **Behavioral baselines**: learns what's actually normal per account (known IPs, login hours, commands) and flags genuine deviation from *that account's* history, not just fixed thresholds - persists across sessions and restarts
+- **AI triage**: turns a raw rule match into a plain-language verdict a non-technical business owner can act on (`OPENAI_API_KEY`, optional - everything else works without it)
 - **Active response**: automatically blocks brute-force source IPs via `iptables`, whitelist-aware and time-boxed with escalating durations for repeat offenders (Linux only)
 - **Multi-channel alerting**: Telegram and Email (Gmail or any SMTP), with credentials encrypted at rest
 - **Live dashboard**: real-time event feed, alert panel, and session stats via Server-Sent Events

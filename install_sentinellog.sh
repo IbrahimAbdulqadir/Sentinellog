@@ -1,7 +1,7 @@
 #!/bin/bash
 # SentinelLog Installer
 # Run this from inside the SentinelLog project folder, on the actual server
-# you want it to watch (Ubuntu/Debian). Safe to re-run — it won't overwrite
+# you want it to watch (Ubuntu/Debian). Safe to re-run - it won't overwrite
 # an existing .env or destroy an existing setup.
 set -e
 
@@ -32,7 +32,7 @@ echo "-> Installing dependencies..."
 ./venv/bin/pip install --upgrade pip --quiet
 ./venv/bin/pip install -r requirements.txt --quiet
 
-# ── 3. .env — only created once, never overwritten ──
+# ── 3. .env - only created once, never overwritten ──
 if [ ! -f ".env" ]; then
   echo
   echo "-> No .env found, let's set one up now."
@@ -49,7 +49,7 @@ if [ ! -f ".env" ]; then
     echo
   done
 
-  read -p "   OpenAI API key (optional — powers the AI alert explanations, press Enter to skip for now): " OPENAI_API_KEY
+  read -p "   OpenAI API key (optional - powers the AI alert explanations, press Enter to skip for now): " OPENAI_API_KEY
 
   cat > .env << EOF
 SECRET_KEY=$SECRET_KEY
@@ -64,7 +64,7 @@ else
   echo "-> .env already exists, leaving it untouched."
 fi
 
-# ── 4. systemd service — this is what makes it survive a reboot ──
+# ── 4. systemd service - this is what makes it survive a reboot ──
 SERVICE_FILE="/etc/systemd/system/sentinellog.service"
 CURRENT_USER=$(whoami)
 

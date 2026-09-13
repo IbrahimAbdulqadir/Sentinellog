@@ -12,7 +12,7 @@ from werkzeug.security import generate_password_hash
 # DATABASE_URL must be set BEFORE app.py is imported: Flask-SQLAlchemy binds its
 # engine to whatever SQLALCHEMY_DATABASE_URI is in app.config the first time the
 # DB is touched, and app.py sets that config at import time. Overriding
-# app.config afterward does nothing — the engine is already bound — so without
+# app.config afterward does nothing - the engine is already bound - so without
 # this, these tests would silently read and write the real sentinellog.db.
 _db_fd, _db_path = tempfile.mkstemp(suffix='.db')
 os.environ['DATABASE_URL'] = 'sqlite:///' + _db_path
@@ -63,7 +63,7 @@ def client():
         os.unlink(_db_path)
     except PermissionError:
         # Windows can still be holding the file open via a daemon worker thread
-        # started by a 'replay'/'tail' session in one of the tests above — not
+        # started by a 'replay'/'tail' session in one of the tests above - not
         # worth synchronizing on just to delete a temp file the OS will reclaim.
         pass
 
@@ -139,7 +139,7 @@ def test_member_cannot_assign_session_to_another_client(client):
     login(client, 'acme_user', 'pw1')
     res = client.post('/api/monitor/start', json={
         'target_name': 'sneaky', 'mode': 'replay', 'filepath': 'sample_logs/auth.log',
-        'client_id': 999,  # Globex's id, or anything else — must be ignored
+        'client_id': 999,  # Globex's id, or anything else - must be ignored
     })
     assert res.status_code == 200
     session_id = res.get_json()['session_id']

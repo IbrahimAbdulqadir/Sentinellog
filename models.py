@@ -27,8 +27,8 @@ def _get_fernet():
 class EncryptedString(TypeDecorator):
     """
     A column type that encrypts values before they hit the database and decrypts
-    them automatically when read back. Used for anything sensitive — Telegram tokens,
-    email passwords — so a copy of the .db file alone isn't enough to read them.
+    them automatically when read back. Used for anything sensitive - Telegram tokens,
+    email passwords - so a copy of the .db file alone isn't enough to read them.
     """
     impl = String
     cache_ok = True
@@ -44,13 +44,13 @@ class EncryptedString(TypeDecorator):
         try:
             return _get_fernet().decrypt(value.encode()).decode()
         except InvalidToken:
-            # Value predates encryption being added — treat it as legacy plaintext
+            # Value predates encryption being added - treat it as legacy plaintext
             # rather than crashing. Re-saving the row will encrypt it going forward.
             return value
 
 
 class IPBlock(db.Model):
-    """Audit trail of every automated block — active or expired."""
+    """Audit trail of every automated block - active or expired."""
     __tablename__ = 'ip_block'
     id = db.Column(db.Integer, primary_key=True)
     ip = db.Column(db.String(64), nullable=False)
@@ -83,7 +83,7 @@ class Client(db.Model):
     A customer/tenant SentinelLog is watching systems on behalf of. Every
     MonitorSession and every non-owner AdminUser belongs to exactly one of
     these, which is what lets one dashboard serve more than one client
-    without their data mixing — see AdminUser.role/client_id below.
+    without their data mixing - see AdminUser.role/client_id below.
     """
     __tablename__ = 'client'
     id = db.Column(db.Integer, primary_key=True)
@@ -98,7 +98,7 @@ class AdminUser(UserMixin, db.Model):
     """
     A dashboard login. The first one created (via .env on initial setup) is
     always an 'owner' with client_id=None, which preserves the original
-    single-admin behavior exactly — an owner still sees every client's data,
+    single-admin behavior exactly - an owner still sees every client's data,
     same as before this table had more than one row. Additional 'member'
     accounts are scoped to exactly one Client via client_id and only ever see
     that client's monitor sessions, alerts, and blocks.
@@ -129,7 +129,7 @@ class MonitorSession(db.Model):
     agent_key = db.Column(db.String(64), default='')  # remote-agent push auth token, 'agent' mode only
     client_id = db.Column(db.Integer, db.ForeignKey('client.id'), nullable=True)  # which tenant this belongs to; None = unassigned/legacy
 
-    # Alert channel credentials — encrypted at rest, see EncryptedString above
+    # Alert channel credentials - encrypted at rest, see EncryptedString above
     telegram_token = db.Column(EncryptedString(500), default='')
     telegram_chat_id = db.Column(EncryptedString(200), default='')
     email_username = db.Column(EncryptedString(300), default='')
@@ -155,7 +155,7 @@ class UserScope(db.Model):
     Per-user filesystem access scope: which absolute path prefixes a login identity
     is allowed to touch, enforced by core.detection_w2.ScopeViolationDetector. This
     is the DB-backed, dashboard-editable replacement for that module's hardcoded
-    USER_SCOPES dict — a username with no row here has nothing enforced against it.
+    USER_SCOPES dict - a username with no row here has nothing enforced against it.
     """
     __tablename__ = 'user_scope'
     username = db.Column(db.String(100), primary_key=True)

@@ -1,5 +1,5 @@
 """
-SentinelLog — AI Triage
+SentinelLog - AI Triage
 
 Turns a raw rule match into a plain-language verdict, the way a Tier-1 SOC
 analyst would explain it to someone who isn't a security engineer. This is
@@ -9,7 +9,7 @@ sentences about what happened and what to actually do about it.
 
 Requires OPENAI_API_KEY in .env. If it's missing, or the call fails or
 times out, investigate() returns None and the caller falls back to the
-existing raw alert — this must never be able to break monitoring itself.
+existing raw alert - this must never be able to break monitoring itself.
 """
 import os
 
@@ -17,7 +17,7 @@ SYSTEM_PROMPT = """You are a calm, plain-spoken Tier-1 security analyst writing 
 
 Given the details of a triggered security alert, write a short verdict in 3-5 sentences:
 1. What actually happened, in plain language, no jargon.
-2. How worried they should genuinely be — be honest, don't inflate small things into emergencies, and don't undersell real ones.
+2. How worried they should genuinely be - be honest, don't inflate small things into emergencies, and don't undersell real ones.
 3. One clear, concrete next action they should take right now.
 
 Do not use technical terms like "brute force," "threshold," or "regex" without immediately explaining what it means in plain words. Do not pad with disclaimers. Write like a person, not a report."""
@@ -31,7 +31,7 @@ def investigate(alert, baseline_context: str = None) -> str | None:
     try:
         from openai import OpenAI
     except ImportError:
-        print("[AI Triage] 'openai' package not installed — run: pip install openai")
+        print("[AI Triage] 'openai' package not installed - run: pip install openai")
         return None
 
     evidence_text = "\n".join(alert.evidence[-5:]) if alert.evidence else "(no raw log lines captured)"
@@ -55,7 +55,7 @@ Raw log evidence:
     try:
         client = OpenAI(api_key=api_key, timeout=15.0)
         response = client.chat.completions.create(
-            model="gpt-4o-mini",  # fast + cheap, fits an SMB price point — swap to gpt-4o for deeper reasoning if needed
+            model="gpt-4o-mini",  # fast + cheap, fits an SMB price point - swap to gpt-4o for deeper reasoning if needed
             max_tokens=300,
             messages=[
                 {"role": "system", "content": SYSTEM_PROMPT},

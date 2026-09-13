@@ -1,16 +1,16 @@
 """
-SentinelLog — Behavioral Detection
+SentinelLog - Behavioral Detection
 
 The difference between this and the rest of core/detection.py: those detectors
 match fixed patterns (5 failed logins in 60 seconds, a path containing '../').
-This one has no fixed pattern at all — it compares a new event against what a
+This one has no fixed pattern at all - it compares a new event against what a
 specific username or IP has actually done before, and flags it when something
 genuinely doesn't match their own history. That's what makes it behavioral
 rather than rule-based.
 
 It needs a few real events before it has anything to compare against, so the
 first few events for any new identity just get absorbed into the baseline
-silently — that quiet learning period is inherent to the idea, not a bug.
+silently - that quiet learning period is inherent to the idea, not a bug.
 """
 import uuid
 from datetime import datetime
@@ -56,7 +56,7 @@ def check_login_behavior(profile: dict, username: str, source_ip: str, login_hou
         if reasons:
             alert = _new_alert(
                 username, source_ip,
-                title=f"Behavior change — {username}",
+                title=f"Behavior change - {username}",
                 description=f"{username} is " + " and ".join(reasons) + f", based on {event_count} previous logins on record for this account.",
                 event_count=event_count + 1, timestamp_iso=timestamp_iso, evidence_line=evidence_line,
             )
@@ -85,7 +85,7 @@ def check_command_behavior(profile: dict, username: str, command: str,
     if event_count >= MIN_HISTORY_BEFORE_FLAGGING and base_command and base_command not in commands:
         alert = _new_alert(
             username, None,
-            title=f"Unfamiliar command — {username}",
+            title=f"Unfamiliar command - {username}",
             description=f"{username} just ran '{base_command}', a command they haven't run in {event_count} previous recorded sudo actions.",
             event_count=event_count + 1, timestamp_iso=timestamp_iso, evidence_line=evidence_line,
         )

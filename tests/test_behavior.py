@@ -1,4 +1,4 @@
-"""Tests for core/behavior.py — per-account behavioral baselines."""
+"""Tests for core/behavior.py - per-account behavioral baselines."""
 from core.behavior import check_login_behavior, check_command_behavior, MIN_HISTORY_BEFORE_FLAGGING
 
 
@@ -26,7 +26,7 @@ def test_login_behavior_stays_quiet_for_a_familiar_pattern():
     profile = empty_login_profile()
     for _ in range(MIN_HISTORY_BEFORE_FLAGGING):
         profile, _ = check_login_behavior(profile, 'ibrahim', '102.89.23.11', 10, '2026-01-15T10:00:00', 'line')
-    # same IP, same hour, now past the learning period — should not be flagged
+    # same IP, same hour, now past the learning period - should not be flagged
     profile, alert = check_login_behavior(profile, 'ibrahim', '102.89.23.11', 10, '2026-01-16T10:00:00', 'line')
     assert alert is None
 

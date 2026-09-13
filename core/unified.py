@@ -1,9 +1,9 @@
 """
-SentinelLog — Unified Detection Engine
+SentinelLog - Unified Detection Engine
 
 Previously, a monitor session had to be told up front which single rule set to
-run — 'auth' (brute force + suspicious login time), 'nginx' (404 flood +
-traversal), or 'sudo' (privilege escalation) — because each was a separate
+run - 'auth' (brute force + suspicious login time), 'nginx' (404 flood +
+traversal), or 'sudo' (privilege escalation) - because each was a separate
 branch in app.py wired to exactly one parser and one detector set. That meant a
 session watching auth.log for brute force attempts would never catch privilege
 escalation even when the sudo activity was sitting in that same file, and a
@@ -11,8 +11,8 @@ demo covering multiple attack types required guessing the right category ahead
 of time instead of just watching and detecting everything that happens.
 
 This module removes that requirement. Every line is classified by what it
-actually looks like — tried against the sudo, nginx, and auth/sshd formats in
-that order — rather than by a pre-declared type, and every detector (brute
+actually looks like - tried against the sudo, nginx, and auth/sshd formats in
+that order - rather than by a pre-declared type, and every detector (brute
 force, suspicious login time, 404 flood, directory traversal, privilege
 escalation, plus the login/command behavioral baselines) is always active
 together. One monitor session can also watch several files at once, so a
@@ -144,7 +144,7 @@ class UnifiedMonitor:
 def _iter_single(filepath, mode, delay, is_running):
     if mode == 'tail':
         with open(filepath, 'r', encoding='utf-8', errors='ignore') as f:
-            f.seek(0, 2)  # jump to current end of file — only new lines from here on
+            f.seek(0, 2)  # jump to current end of file - only new lines from here on
             while is_running():
                 line = f.readline()
                 if line:

@@ -1,4 +1,4 @@
-"""Tests for core/detection.py — auth.log parsing, brute force, suspicious time."""
+"""Tests for core/detection.py - auth.log parsing, brute force, suspicious time."""
 from datetime import datetime, timedelta
 
 from core.detection import (
@@ -82,7 +82,7 @@ def test_brute_force_does_not_realert_every_attempt():
     base = datetime(2026, 1, 15, 10, 0, 0)
     for i in range(3):
         det.process_event(make_event(timestamp=base + timedelta(seconds=i)))
-    # 4th attempt: past threshold but not a multiple of it — should stay quiet
+    # 4th attempt: past threshold but not a multiple of it - should stay quiet
     alert = det.process_event(make_event(timestamp=base + timedelta(seconds=3)))
     assert alert is None
 
@@ -101,7 +101,7 @@ def test_brute_force_realerts_at_next_multiple_with_higher_severity():
 def test_brute_force_sliding_window_evicts_old_attempts():
     det = BruteForceDetector(threshold=3, window_seconds=10)
     base = datetime(2026, 1, 15, 10, 0, 0)
-    # three attempts, 20s apart — each one falls outside the 10s window of the next
+    # three attempts, 20s apart - each one falls outside the 10s window of the next
     for i in range(3):
         alert = det.process_event(make_event(timestamp=base + timedelta(seconds=20 * i)))
         assert alert is None
@@ -127,7 +127,7 @@ def test_suspicious_time_ignores_non_success_events():
 def test_suspicious_time_stays_quiet_during_learning_period():
     det = SuspiciousTimeDetector(min_history=3)
     base = datetime(2026, 1, 15, 10, 0, 0)
-    # only 2 daytime logins on record — below min_history, so a night login shouldn't fire yet
+    # only 2 daytime logins on record - below min_history, so a night login shouldn't fire yet
     det.process_event(make_event(event_type='auth_success', username='ibrahim', timestamp=base))
     det.process_event(make_event(event_type='auth_success', username='ibrahim', timestamp=base))
     night = base.replace(hour=2)

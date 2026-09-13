@@ -1,11 +1,11 @@
 {% extends "base.html" %}
-{% block title %}Clients — SentinelLog{% endblock %}
+{% block title %}Clients - SentinelLog{% endblock %}
 
 {% block content %}
 <div class="page-head flex-between">
   <div>
     <div class="page-title">Clients</div>
-    <div class="page-sub">Owner-only. Each client is a separate tenant — its member accounts only ever see monitor sessions, alerts, and blocks assigned to it</div>
+    <div class="page-sub">Owner-only. Each client is a separate tenant - its member accounts only ever see monitor sessions, alerts, and blocks assigned to it</div>
   </div>
 </div>
 
@@ -35,7 +35,7 @@
           <div style="font-size:12px;color:var(--text-muted)">
             {% set members = members_by_client.get(c.id, []) %}
             {{ members|length }} account{{ '' if members|length == 1 else 's' }}
-            {% if members %} — {{ members|map(attribute='username')|join(', ') }}{% endif %}
+            {% if members %} - {{ members|map(attribute='username')|join(', ') }}{% endif %}
           </div>
         </div>
       </div>
@@ -56,7 +56,7 @@
   <div class="empty-state">
     <div class="empty-state-icon"><i class="ti ti-building" aria-hidden="true"></i></div>
     <div class="empty-state-title">No clients yet</div>
-    <div class="empty-state-text">Add a client above, then create a login for them — their account will only ever see monitor sessions assigned to that client.</div>
+    <div class="empty-state-text">Add a client above, then create a login for them - their account will only ever see monitor sessions assigned to that client.</div>
   </div>
 </div>
 {% endif %}

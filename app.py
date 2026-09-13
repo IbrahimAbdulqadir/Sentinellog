@@ -43,7 +43,7 @@ def load_user(user_id):
 
 
 def owner_required(f):
-    """Gates client-management routes to owner accounts only — a member account
+    """Gates client-management routes to owner accounts only - a member account
     manages nothing, it just watches the one client it's scoped to."""
     @wraps(f)
     @login_required
@@ -81,7 +81,7 @@ def _scope_blocks_query():
 
 def _visible_session(session_id):
     """Fetches a MonitorSession by id, but returns None if the current account
-    isn't allowed to see it — a member account guessing another client's session
+    isn't allowed to see it - a member account guessing another client's session
     id must get exactly the same 'not found' response as a session that doesn't
     exist at all, not a 403 that confirms someone else's id is real."""
     row = db.session.get(MonitorSession, session_id)
@@ -96,7 +96,7 @@ def init_db():
     with app.app_context():
         db.create_all()
         # Lightweight migration: create_all() only creates missing tables, it never
-        # alters an existing one — so a column added after the .db file already
+        # alters an existing one - so a column added after the .db file already
         # exists (like agent_key) needs to be bolted on by hand, once, here.
         existing_cols = {row[1] for row in db.session.execute(
             db.text("PRAGMA table_info(monitor_session)")
@@ -112,7 +112,7 @@ def init_db():
         )}
         if 'role' not in admin_cols:
             # Every pre-existing login predates multi-tenancy entirely, so it was
-            # always meant to see everything — 'owner' is the only value that
+            # always meant to see everything - 'owner' is the only value that
             # preserves that behavior unchanged.
             db.session.execute(db.text("ALTER TABLE admin_user ADD COLUMN role VARCHAR(20) DEFAULT 'owner'"))
             db.session.commit()
@@ -120,7 +120,7 @@ def init_db():
             db.session.execute(db.text("ALTER TABLE admin_user ADD COLUMN client_id INTEGER"))
             db.session.commit()
         # A session's `running` flag is only ever cleared by its own worker thread's
-        # `finally` block — which a restart (SIGTERM) doesn't give daemon threads the
+        # `finally` block - which a restart (SIGTERM) doesn't give daemon threads the
         # chance to run. A fresh process always starts with zero live sessions (this
         # module's `active_streams` dict is empty on import), so any row still marked
         # running here is stale from before this restart, not actually live.
@@ -141,7 +141,7 @@ def init_db():
 def inject_active_session():
     """
     Makes the currently-running monitor session (if any) available to every
-    template, not just monitor.html — this is what lets base.html show a live
+    template, not just monitor.html - this is what lets base.html show a live
     session tab in the nav bar on every page, so a running session is always
     one click away instead of only reachable from its own page.
     """
@@ -313,7 +313,7 @@ def api_create_client_user(client_id):
 def _maybe_block_ip(alert, session_id):
     ip = alert.source_ip
     if is_whitelisted(ip):
-        return f"{ip} is on the whitelist — no action taken"
+        return f"{ip} is on the whitelist - no action taken"
 
     existing = IPBlock.query.filter_by(ip=ip, active=True).first()
     if existing:
@@ -335,7 +335,7 @@ def _maybe_block_ip(alert, session_id):
     db.session.commit()
 
     minutes = duration // 60
-    return message + (f" — blocked for {minutes} minutes (offense #{prior_count + 1})" if success else "")
+    return message + (f" - blocked for {minutes} minutes (offense #{prior_count + 1})" if success else "")
 
 
 def _unblock_sweep():
@@ -419,7 +419,7 @@ def api_start_monitor():
 
 def _resolve_client_id(data):
     """
-    A member account can only ever create/resume sessions under its own client —
+    A member account can only ever create/resume sessions under its own client -
     whatever it sends is ignored so it can't assign its own monitor to someone
     else's tenant. An owner has no client of their own, so they pick one from
     the form (or leave a session unassigned) via an explicit client_id.
@@ -480,13 +480,13 @@ def _start_monitor_session(data):
 
     def worker():
         # A remote agent pushes lines whenever it wants, independent of whether anyone
-        # has the dashboard open — unlike replay/tail, there's no local file sitting
+        # has the dashboard open - unlike replay/tail, there's no local file sitting
         # around to read whenever a browser eventually connects, so don't gate on that.
         if not is_agent:
             ready.wait(timeout=30)
             if not active_streams.get(session_id, {}).get('connected', False):
                 # Either nobody connected within 30s, or a Stop request woke this up early
-                # before anyone ever did — either way, there's nothing to process. Clean up
+                # before anyone ever did - either way, there's nothing to process. Clean up
                 # so this correctly shows as historical instead of looking connectable forever.
                 active_streams.pop(session_id, None)
                 with app.app_context():
@@ -516,7 +516,7 @@ def _start_monitor_session(data):
                 q.put(item)
                 if ev == 'log_event':
                     # Alerts already have their own DB-backed history via
-                    # /api/monitor/<id>/alerts — only the raw feed lines need this.
+                    # /api/monitor/<id>/alerts - only the raw feed lines need this.
                     active_streams[session_id]['history'].append(item)
 
             def put_alert(alert):
@@ -543,7 +543,7 @@ def _start_monitor_session(data):
                     db.session.commit()
                 except Exception as e:
                     # A single alert failing to save should never take down the whole
-                    # monitoring session — log it, reset the DB session, and keep watching.
+                    # monitoring session - log it, reset the DB session, and keep watching.
                     print(f"[Monitor {session_id}] Failed to save alert, continuing anyway: {e}")
                     db.session.rollback()
                 put('alert', {**asdict(alert), 'ai_verdict': ai_verdict})
@@ -650,8 +650,8 @@ def _start_monitor_session(data):
                         print(f"[Monitor {session_id}] Behavior check failed, continuing: {e}")
                         db.session.rollback()
 
-                # Every rule — brute force, suspicious login time, 404 flood, directory
-                # traversal, privilege escalation, and both behavioral baselines — runs
+                # Every rule - brute force, suspicious login time, 404 flood, directory
+                # traversal, privilege escalation, and both behavioral baselines - runs
                 # together on every line, regardless of which format that line turns out
                 # to be. No upfront "what am I watching for" choice needed.
                 scopes = {r.username: r.paths for r in UserScope.query.all()}
@@ -671,7 +671,7 @@ def _start_monitor_session(data):
                 put('complete', {})
                 row.running = False
                 db.session.commit()
-                # The worker is genuinely done now — remove it so a page reload after this
+                # The worker is genuinely done now - remove it so a page reload after this
                 # correctly shows "historical" instead of falsely looking connectable forever.
                 active_streams.pop(session_id, None)
 
@@ -686,8 +686,8 @@ def _start_monitor_session(data):
 def api_ingest(session_id):
     """
     Where a remote agent pushes log lines from a server this box never opens a file
-    on directly. Deliberately not @login_required — an unattended agent on another
-    machine can't hold a browser session — auth is the per-session agent_key instead,
+    on directly. Deliberately not @login_required - an unattended agent on another
+    machine can't hold a browser session - auth is the per-session agent_key instead,
     generated once when the session was started in 'agent' mode and shown to the admin.
     """
     row = db.session.get(MonitorSession, session_id)
@@ -700,12 +700,12 @@ def api_ingest(session_id):
 
     stream = active_streams.get(session_id)
     if not stream or not stream.get('ingest_queue'):
-        return jsonify({'error': 'Session is not currently accepting lines — start a new monitor'}), 409
+        return jsonify({'error': 'Session is not currently accepting lines - start a new monitor'}), 409
 
     lines = (request.json or {}).get('lines') or []
     if not isinstance(lines, list):
         return jsonify({'error': 'lines must be a list of strings'}), 400
-    lines = [str(l) for l in lines[:1000]]  # cap a single batch — an agent should send small, frequent batches
+    lines = [str(l) for l in lines[:1000]]  # cap a single batch - an agent should send small, frequent batches
 
     for line in lines:
         stream['ingest_queue'].put(line)
@@ -717,7 +717,7 @@ def api_ingest(session_id):
 @login_required
 def api_resume_monitor(session_id):
     """
-    Start a brand-new live session using the exact same config as an old one —
+    Start a brand-new live session using the exact same config as an old one -
     same file, mode, log type, and alert channels. This is what 'continue
     watching' actually means: the old session_id's own worker thread is gone
     once the process restarts or it finishes, but its settings live on in the
@@ -746,7 +746,7 @@ def api_resume_monitor(session_id):
 @app.route('/api/monitor/<session_id>/alerts')
 @login_required
 def api_session_alerts(session_id):
-    """Historical alerts already saved for this specific session — used to
+    """Historical alerts already saved for this specific session - used to
     populate the Live Alerts panel when a monitor page is opened after the
     fact, instead of only showing alerts that stream in after the page loads."""
     if not _visible_session(session_id):
@@ -758,7 +758,7 @@ def api_session_alerts(session_id):
 @app.route('/api/monitor/<session_id>/feed')
 @login_required
 def api_session_feed(session_id):
-    """Recent raw log_event lines still held in memory for this session — lets a
+    """Recent raw log_event lines still held in memory for this session - lets a
     browser that navigates away and back replay what the live feed panel missed,
     instead of it looking like the session restarted."""
     if not _visible_session(session_id):
@@ -806,7 +806,7 @@ def api_stop_monitor(session_id):
     if session_id in active_streams:
         active_streams[session_id]['running'] = False
         # If nobody ever connected to this session's live view, its worker is still
-        # blocked waiting for that — wake it up now instead of leaving it stuck for 30s.
+        # blocked waiting for that - wake it up now instead of leaving it stuck for 30s.
         active_streams[session_id]['ready'].set()
     row.running = False
     db.session.commit()
@@ -827,7 +827,7 @@ def api_monitor_status(session_id):
         'mode': row.mode,
         'log_type': row.log_type,
         'running': row.running,
-        # True the instant a session is created, even before its first byte is processed —
+        # True the instant a session is created, even before its first byte is processed -
         # this is what should gate "try to connect", not `running`, which only flips true
         # AFTER something connects. Gating on `running` was a chicken-and-egg deadlock.
         'live_available': session_id in active_streams,

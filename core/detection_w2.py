@@ -1,5 +1,5 @@
 """
-SentinelLog — Week 2 Detection Rules
+SentinelLog - Week 2 Detection Rules
 Nginx/Apache log parser, 404 flood, directory traversal, privilege escalation
 """
 
@@ -29,7 +29,7 @@ SUDO_PATTERN = re.compile(
     r'\S+\s+sudo:\s+(?P<user>\S+)\s+:.*COMMAND=(?P<command>.+)$'
 )
 
-# su (account switch) log formats — PAM logs a successful switch as a session-open
+# su (account switch) log formats - PAM logs a successful switch as a session-open
 # line, and util-linux's su itself logs a rejected one as "FAILED SU". Both name
 # actor and target explicitly, which is exactly what a horizontal-movement check
 # (one account assuming another's identity) needs.
@@ -72,9 +72,9 @@ BENIGN_ROOT_HELPERS = {'unix_chkpwd'}
 # Per-user filesystem scope: which absolute path prefixes each login identity is
 # allowed to touch. This is only the fallback default for a ScopeViolationDetector
 # built with no arguments (direct testing, or any caller that hasn't wired up real
-# config) — app.py passes in the actual, dashboard-editable scopes loaded from the
+# config) - app.py passes in the actual, dashboard-editable scopes loaded from the
 # UserScope table instead. A user with no entry has nothing enforced against them
-# either way — this is opt-in per account, not a default-deny for everyone.
+# either way - this is opt-in per account, not a default-deny for everyone.
 USER_SCOPES = {
     'user1': ['/home/user1/Downloads'],
     'user2': ['/home/user2/Downloads'],
@@ -218,11 +218,11 @@ def parse_scope_line(line: str) -> Optional[dict]:
     """
     Parses an auditd record tagged with the 'scope_watch' key, a path watch
     (`-w /home -p rwxa -k scope_watch`) rather than a syscall-argument rule like
-    'rootshell_cmd' — it fires at the VFS layer on open/read/write/exec of anything
+    'rootshell_cmd' - it fires at the VFS layer on open/read/write/exec of anything
     under the watched tree, so `ls`, `cat`, a script, and a GUI file manager all
     produce the exact same record. That's what makes tool-of-access irrelevant here.
 
-    NOTE — simplification: real auditd splits this across a SYSCALL record (which
+    NOTE - simplification: real auditd splits this across a SYSCALL record (which
     carries AUID) and a separate PATH record (which carries `name=`), correlated by
     the shared serial number in `msg=audit(epoch.msec:serial)`. This parser assumes
     those two have already been merged into one line (e.g. via `ausearch -i` output,
@@ -289,7 +289,7 @@ def parse_su_line(line: str, assumed_year: int = None) -> Optional[dict]:
 
 class NotFoundFloodDetector:
     """
-    Detects 404 scanning — someone mapping your site for hidden files/endpoints.
+    Detects 404 scanning - someone mapping your site for hidden files/endpoints.
     Threshold: 20+ 404s from same IP within 60 seconds.
     """
 
@@ -320,7 +320,7 @@ class NotFoundFloodDetector:
                     id=f"404_{ip}_{int(event.timestamp.timestamp())}_{uuid.uuid4().hex[:6]}",
                     rule='404_flood',
                     severity='high',
-                    title=f"Web scanner detected — {ip}",
+                    title=f"Web scanner detected - {ip}",
                     description=(
                         f"{count} requests returning 404 from {ip} in {self.window_seconds}s. "
                         f"Scanning for: {', '.join(paths[:5])}"
@@ -338,7 +338,7 @@ class NotFoundFloodDetector:
 
 class DirectoryTraversalDetector:
     """
-    Detects path traversal attempts — ../../../etc/passwd patterns.
+    Detects path traversal attempts - ../../../etc/passwd patterns.
     Any single attempt is flagged immediately.
     """
 
@@ -358,7 +358,7 @@ class DirectoryTraversalDetector:
             id=f"trav_{event.source_ip}_{int(event.timestamp.timestamp())}_{uuid.uuid4().hex[:6]}",
             rule='directory_traversal',
             severity='critical',
-            title=f"Directory traversal attempt — {event.source_ip}",
+            title=f"Directory traversal attempt - {event.source_ip}",
             description=(
                 f"Path traversal pattern detected in request from {event.source_ip}: "
                 f"{event.path[:100]}"
@@ -375,7 +375,7 @@ class DirectoryTraversalDetector:
 
 class PrivilegeEscalationDetector:
     """
-    Detects suspicious sudo usage — unexpected users or dangerous commands.
+    Detects suspicious sudo usage - unexpected users or dangerous commands.
     """
 
     def __init__(self):
@@ -411,7 +411,7 @@ class PrivilegeEscalationDetector:
             id=f"privesc_{user}_{int(ts.timestamp())}_{uuid.uuid4().hex[:6]}",
             rule='privilege_escalation',
             severity=severity,
-            title=f"Suspicious sudo usage — {user}",
+            title=f"Suspicious sudo usage - {user}",
             description=f"Privilege escalation detected: {', '.join(reason)}",
             source_ip=None,
             username=user,
@@ -425,7 +425,7 @@ class PrivilegeEscalationDetector:
 
 class AccountSwitchDetector:
     """
-    Detects su (account switch) attempts by an untrusted identity — one account
+    Detects su (account switch) attempts by an untrusted identity - one account
     directly assuming another's session rather than going through sudo. This is
     the horizontal-movement counterpart to PrivilegeEscalationDetector's vertical
     one: sudo runs a single command as another user, su hands over the whole
@@ -460,7 +460,7 @@ class AccountSwitchDetector:
             id=f"acctsw_{actor}_{int(ts.timestamp())}_{uuid.uuid4().hex[:6]}",
             rule='lateral_movement',
             severity=severity,
-            title=f"Account switch — {actor} {'became' if succeeded else 'tried to become'} {target}",
+            title=f"Account switch - {actor} {'became' if succeeded else 'tried to become'} {target}",
             description=(
                 f"'{actor}' {verb} the '{target}' account via su, "
                 f"bypassing sudo's per-command trail entirely."
@@ -487,7 +487,7 @@ class RootShellCommandDetector:
     Two sources of routine, non-malicious noise land in this same audit trail
     and are filtered out rather than fired on:
 
-    - `tty=(none)` — a command with no controlling terminal can't be something
+    - `tty=(none)` - a command with no controlling terminal can't be something
       an attacker typed into an escalated interactive shell (that always has a
       real tty attached). It's the signature of a detached root-owned process
       PAM/session-open spawns on every login for every user, e.g. the
@@ -495,7 +495,7 @@ class RootShellCommandDetector:
       motd scripts -> whatever they shell out to) that generates the login
       banner. This is a property check, not a name allowlist, so it doesn't
       need updating as distros change which scripts that chain happens to run.
-    - `comm` in BENIGN_ROOT_HELPERS — helpers invoked internally by sudo/PAM
+    - `comm` in BENIGN_ROOT_HELPERS - helpers invoked internally by sudo/PAM
       itself (e.g. `unix_chkpwd`, sudo's setuid password-check step) rather
       than by whatever the actor typed, so they can carry a real tty and still
       not be evidence of anything the actor did once inside a shell.
@@ -528,7 +528,7 @@ class RootShellCommandDetector:
             id=f"rootcmd_{actor}_{int(ts.timestamp())}_{uuid.uuid4().hex[:6]}",
             rule='rootshell_command',
             severity='critical',
-            title=f"Command run as root — {actor} ran '{command}'",
+            title=f"Command run as root - {actor} ran '{command}'",
             description=(
                 f"'{actor}' logged in as a non-root account but executed '{command}' "
                 f"while running as root, evidence of what happened inside an escalated "
@@ -547,11 +547,11 @@ class RootShellCommandDetector:
 class ScopeViolationDetector:
     """
     Flags a user touching anything outside their assigned filesystem scope
-    (USER_SCOPES), independent of privilege level — unlike RootShellCommandDetector,
+    (USER_SCOPES), independent of privilege level - unlike RootShellCommandDetector,
     this doesn't require escalation to fire. A user reading their own permitted
     files with their own normal account is enough to trip it if that read lands
     outside their lane. Because it's driven by an auditd path watch rather than a
-    syscall-argument rule, it can't be dodged by switching tools — `ls`, a script,
+    syscall-argument rule, it can't be dodged by switching tools - `ls`, a script,
     or a GUI file manager all generate the same underlying record.
 
     Accounts with no entry in USER_SCOPES are skipped entirely: this rule is opt-in
@@ -588,7 +588,7 @@ class ScopeViolationDetector:
             id=f"scope_{actor}_{int(ts.timestamp())}_{uuid.uuid4().hex[:6]}",
             rule='scope_violation',
             severity='high',
-            title=f"Out-of-scope access — {actor} touched '{real_path}'",
+            title=f"Out-of-scope access - {actor} touched '{real_path}'",
             description=(
                 f"'{actor}' is scoped to {', '.join(allowed)}, but accessed "
                 f"'{real_path}', outside their assigned area. This was caught at "

@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% block title %}Dashboard — SentinelLog{% endblock %}
+{% block title %}Dashboard - SentinelLog{% endblock %}
 
 {% block content %}
 <div class="page-head flex-between">
@@ -12,22 +12,22 @@
 <div class="metrics">
   <div class="metric m-blue">
     <div class="metric-label"><i class="ti ti-activity" aria-hidden="true"></i>Active monitors</div>
-    <div class="metric-value" id="statMonitors">—</div>
+    <div class="metric-value" id="statMonitors">-</div>
     <div class="metric-sub">log sources watched</div>
   </div>
   <div class="metric m-red">
     <div class="metric-label"><i class="ti ti-alert-triangle" aria-hidden="true"></i>Critical alerts</div>
-    <div class="metric-value" id="statCritical">—</div>
+    <div class="metric-value" id="statCritical">-</div>
     <div class="metric-sub">brute force detected</div>
   </div>
   <div class="metric m-amber">
     <div class="metric-label"><i class="ti ti-clock" aria-hidden="true"></i>Suspicious logins</div>
-    <div class="metric-value" id="statSuspicious">—</div>
+    <div class="metric-value" id="statSuspicious">-</div>
     <div class="metric-sub">unusual login time</div>
   </div>
   <div class="metric m-green">
     <div class="metric-label"><i class="ti ti-chart-bar" aria-hidden="true"></i>Events processed</div>
-    <div class="metric-value" id="statEvents">—</div>
+    <div class="metric-value" id="statEvents">-</div>
     <div class="metric-sub">log lines analyzed</div>
   </div>
 </div>
@@ -154,7 +154,7 @@ function connectFeed(sessionId) {
     const ip = d.source_ip || '';
     row.innerHTML = `
       <span class="t-ts">${new Date(d.timestamp).toTimeString().slice(0,8)}</span>
-      <span class="${cls}">${tag} · ${user}${ip ? '@'+ip : ''} — ${d.raw_line.split(':').slice(-1)[0].trim().slice(0,60)}</span>
+      <span class="${cls}">${tag} · ${user}${ip ? '@'+ip : ''} - ${d.raw_line.split(':').slice(-1)[0].trim().slice(0,60)}</span>
     `;
     feed.insertBefore(row, feed.firstChild);
     while (feed.children.length > 30) feed.removeChild(feed.lastChild);

@@ -1,4 +1,4 @@
-"""Tests for core/detection_w2.py — nginx/sudo parsing, web attack + privesc detectors."""
+"""Tests for core/detection_w2.py - nginx/sudo parsing, web attack + privesc detectors."""
 from datetime import datetime, timedelta
 
 from core.detection_w2 import (

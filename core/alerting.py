@@ -1,5 +1,5 @@
 """
-SentinelLog — Week 4
+SentinelLog - Week 4
 Multi-channel alerting: Telegram + Email (Gmail or any SMTP)
 """
 
@@ -121,7 +121,7 @@ class EmailAlerter:
     @classmethod
     def gmail(cls, username: str, password: str, to_addr: str):
         """
-        Convenience constructor for Gmail — uses port 465 (implicit SSL) by default.
+        Convenience constructor for Gmail - uses port 465 (implicit SSL) by default.
         Some networks, especially some mobile carriers, block port 587's STARTTLS
         handshake outright, but leave 465 open, so this is the more reliable default.
         """
@@ -151,7 +151,7 @@ class EmailAlerter:
 
     def send(self, alert, ai_verdict: str = None) -> bool:
         sev_emoji = SEVERITY_EMOJI.get(alert.severity, '🔔')
-        subject = f"{sev_emoji} SentinelLog Alert — {alert.title}"
+        subject = f"{sev_emoji} SentinelLog Alert - {alert.title}"
 
         evidence_html = ""
         if alert.evidence:
@@ -229,7 +229,7 @@ class EmailAlerter:
         self.last_error = None
         try:
             msg = MIMEText('SentinelLog email alerting is connected and working.', 'plain')
-            msg['Subject'] = '✅ SentinelLog — Email connected'
+            msg['Subject'] = '✅ SentinelLog - Email connected'
             msg['From'] = self.from_addr
             msg['To'] = self.to_addr
             with self._connect() as server:

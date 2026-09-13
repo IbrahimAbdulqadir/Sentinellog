@@ -4,9 +4,9 @@ Running notes on in-progress work and investigations in this repo, kept here (ra
 
 ---
 
-## 2026-08-20 — user4 root-escalation investigation
+## 2026-08-20 - user4 root-escalation investigation
 
-**Status:** open — root cause not yet identified.
+**Status:** open - root cause not yet identified.
 
 **Trigger:** Yesterday (Aug 19) `user4` reportedly became root on the `Ibrahim` host, but SentinelLog's `PrivilegeEscalationDetector` (watches `sudo` lines) did not fire an alert.
 
@@ -14,29 +14,29 @@ Running notes on in-progress work and investigations in this repo, kept here (ra
 - `user4` had failed SSH password attempts from two external IPs on Aug 19 (`100.90.132.113` at 08:16, `100.96.169.78` at 15:14–15:15).
 - `ibrahim` reset `user4`'s password at 15:40 and verified access via `su user4` at 15:52.
 - `user4` logged in successfully over SSH from `100.96.169.78` at 16:03 and again 16:41 (session id 290) using the new password.
-- At 16:46:41, `user4` ran `sudo cd root` and was **denied** — `user4` is not in `/etc/sudoers` or the `sudo` group (only `ibrahim`, `user3` are).
+- At 16:46:41, `user4` ran `sudo cd root` and was **denied** - `user4` is not in `/etc/sudoers` or the `sudo` group (only `ibrahim`, `user3` are).
 - Every `key="rootshell_cmd"` audit hit tied to `user4`'s session (auid=1004, uid=0) traces to two benign root-owned helpers, not a shell `user4` controlled:
-  - `env` → `run-parts` → `10-uname` (dash) → `uname`, `tty=(none)` — standard PAM dynamic-MOTD generation (`run-parts /etc/update-motd.d`) that runs as root on every login for every user.
-  - `unix_chkpwd ... nullok` / `... chkexpiry`, `tty=pts3` — `sudo`'s own setuid-root password-check helper, tied to the (denied) `sudo cd root` attempt.
-- `user4`'s group memberships: `user4` (primary), `maintenance` (secondary, gid 1005) — a possible escalation path independent of sudoers that hasn't been ruled out yet.
+  - `env` → `run-parts` → `10-uname` (dash) → `uname`, `tty=(none)` - standard PAM dynamic-MOTD generation (`run-parts /etc/update-motd.d`) that runs as root on every login for every user.
+  - `unix_chkpwd ... nullok` / `... chkexpiry`, `tty=pts3` - `sudo`'s own setuid-root password-check helper, tied to the (denied) `sudo cd root` attempt.
+- `user4`'s group memberships: `user4` (primary), `maintenance` (secondary, gid 1005) - a possible escalation path independent of sudoers that hasn't been ruled out yet.
 
-**Working theory:** if `user4` really did get root, it likely happened through a path none of SentinelLog's current five log sources (sudo, su, audit rootshell_cmd, scope, nginx/auth) watch — e.g. a SUID/SGID binary, a cron job or script writable via the `maintenance` group, or a polkit rule. That would explain why both `PrivilegeEscalationDetector` and `AccountSwitchDetector` stayed silent: neither watches that kind of vector.
+**Working theory:** if `user4` really did get root, it likely happened through a path none of SentinelLog's current five log sources (sudo, su, audit rootshell_cmd, scope, nginx/auth) watch - e.g. a SUID/SGID binary, a cron job or script writable via the `maintenance` group, or a polkit rule. That would explain why both `PrivilegeEscalationDetector` and `AccountSwitchDetector` stayed silent: neither watches that kind of vector.
 
 **Also flagged (detector gap, separate from the root cause above):** `RootShellCommandDetector` (`core/detection_w2.py:467`) currently has no way to distinguish a genuinely escalated interactive shell from routine root-owned session-open helpers (MOTD run-parts, unix_chkpwd), so it's a likely source of noisy false "critical" alerts on ordinary logins. Worth revisiting once the actual escalation vector is confirmed.
 
 **Next steps (commands requested, outputs not yet provided):**
 1. What specifically indicated `user4` became root yesterday? (a command, a file, something in history)
-2. `sudo -u user4 find / -perm -4000 -o -perm -2000 2>/dev/null` — output pending
+2. `sudo -u user4 find / -perm -4000 -o -perm -2000 2>/dev/null` - output pending
 3. `getent group maintenance` and `find / -group maintenance -perm -002 2>/dev/null`
 4. `cat /etc/crontab; ls -la /etc/cron.d/ /etc/cron.daily/`
 5. Full `cat /etc/sudoers.d/*` (previous grep only matched literal `user4`, would miss a `%maintenance` group rule)
 6. `sudo cat /home/user4/.bash_history`, `sudo cat /root/.bash_history` (if present), `lastlog -u user4`
 
-**2026-09-12 addendum — one of the "external IPs" is the box itself:** Checked the current Tailscale device list (`tailscale status`) while trying to reach `sentinellog-kali` to run the commands above (it's currently offline, needs to be powered back on). Only two devices are on this tailnet: `spiderman` (100.100.144.20) and `sentinellog-kali` (100.90.132.113). That means the first "external IP" in step 1 above, `100.90.132.113` (the 08:16 failed attempt), **is sentinellog-kali's own Tailscale address** — since the box is Tailscale-only, that failed SSH attempt came from the box connecting to itself, not from another device on the network. The second IP, `100.96.169.78` (the one that later succeeded at 16:03/16:41), doesn't match any currently-listed tailnet device — either it's since been removed (plausibly the tester's own machine, cleaned up post-exercise) or it was never a listed peer to begin with. Worth asking the tester directly whether they were ever working from the console/VM itself on Aug 19, since a self-directed SSH attempt reads very differently from a remote credential-stuffing attempt. Doesn't change the working theory about the escalation vector, but changes how the two source IPs in step 1 should be read.
+**2026-09-12 addendum - one of the "external IPs" is the box itself:** Checked the current Tailscale device list (`tailscale status`) while trying to reach `sentinellog-kali` to run the commands above (it's currently offline, needs to be powered back on). Only two devices are on this tailnet: `spiderman` (100.100.144.20) and `sentinellog-kali` (100.90.132.113). That means the first "external IP" in step 1 above, `100.90.132.113` (the 08:16 failed attempt), **is sentinellog-kali's own Tailscale address** - since the box is Tailscale-only, that failed SSH attempt came from the box connecting to itself, not from another device on the network. The second IP, `100.96.169.78` (the one that later succeeded at 16:03/16:41), doesn't match any currently-listed tailnet device - either it's since been removed (plausibly the tester's own machine, cleaned up post-exercise) or it was never a listed peer to begin with. Worth asking the tester directly whether they were ever working from the console/VM itself on Aug 19, since a self-directed SSH attempt reads very differently from a remote credential-stuffing attempt. Doesn't change the working theory about the escalation vector, but changes how the two source IPs in step 1 should be read.
 
 ---
 
-## 2026-09-01 — tester round wrap-up + what to work on next
+## 2026-09-01 - tester round wrap-up + what to work on next
 
 **Context:** paused SentinelLog to pick up another project. This entry is the handoff so the thread is easy to resume.
 
@@ -44,76 +44,76 @@ Running notes on in-progress work and investigations in this repo, kept here (ra
 
 Ran SentinelLog against four real people on the `sentinellog-kali` VM (Tailscale-only, service running 24/7, tailing `/var/log/auth.log` + `/var/log/audit/audit.log`). One account each, briefs in `friend-access/user{1..4}.html`:
 
-- **user1** — no privileges, no sudo, no groups. Asked to attempt escalation and lateral `su` that the OS would refuse. Goal: confirm a *denied* attempt still alerts. Held up.
-- **user2** — one permitted sudo command (`find`). Asked to use it normally, then abuse it via `find -exec /bin/sh` to a real root shell. Both the everyday use and the abuse alerted; commands run *inside* the escalated shell were caught by the auditd root-shell watch. Held up.
-- **user3** — ordinary staff account, not on the trusted list. Asked to run sudo commands including obviously malicious ones. Every one flagged. Held up.
-- **user4** — same low access, no hints, told only that a real misconfiguration to root exists on the box. Found a route to root that SentinelLog never reported (see the Aug 20 investigation above — still open). This is the finding that matters.
+- **user1** - no privileges, no sudo, no groups. Asked to attempt escalation and lateral `su` that the OS would refuse. Goal: confirm a *denied* attempt still alerts. Held up.
+- **user2** - one permitted sudo command (`find`). Asked to use it normally, then abuse it via `find -exec /bin/sh` to a real root shell. Both the everyday use and the abuse alerted; commands run *inside* the escalated shell were caught by the auditd root-shell watch. Held up.
+- **user3** - ordinary staff account, not on the trusted list. Asked to run sudo commands including obviously malicious ones. Every one flagged. Held up.
+- **user4** - same low access, no hints, told only that a real misconfiguration to root exists on the box. Found a route to root that SentinelLog never reported (see the Aug 20 investigation above - still open). This is the finding that matters.
 
-Also surfaced a genuine positive: the behavioural engine flagged the operator's own repeated password retries + password change as unusual for that account — an unplanned, correct hit.
+Also surfaced a genuine positive: the behavioural engine flagged the operator's own repeated password retries + password change as unusual for that account - an unplanned, correct hit.
 
 LinkedIn post drafted from this (kept in chat, not committed). Screenshots to be attached by Ibrahim.
 
 ### Priority order when work resumes
 
-1. **Close the user4 blind spot (highest).** Blocked on box data — run the six commands in the Aug 20 entry, and just ask the tester how they did it. The deliverable is identifying the vector, then deciding which log source / detector needs to exist to see it. Everything below is secondary until this is known.
-2. ~~**Fix `RootShellCommandDetector` false positives**~~ — done 2026-09-12, see entry below.
-3. **Then decide the next big push:** multi-tenancy / RBAC (the main structural blocker per `SYSTEM_OVERVIEW.md` §12 — single admin login, no per-customer separation) vs. broader detection coverage. Don't start either until the user4 vector is identified, since it may reshape what "more coverage" means.
+1. **Close the user4 blind spot (highest).** Blocked on box data - run the six commands in the Aug 20 entry, and just ask the tester how they did it. The deliverable is identifying the vector, then deciding which log source / detector needs to exist to see it. Everything below is secondary until this is known.
+2. ~~**Fix `RootShellCommandDetector` false positives**~~ - done 2026-09-12, see entry below.
+3. **Then decide the next big push:** multi-tenancy / RBAC (the main structural blocker per `SYSTEM_OVERVIEW.md` §12 - single admin login, no per-customer separation) vs. broader detection coverage. Don't start either until the user4 vector is identified, since it may reshape what "more coverage" means.
 
 ---
 
-## 2026-09-12 — fixed RootShellCommandDetector false positives
+## 2026-09-12 - fixed RootShellCommandDetector false positives
 
 **Status:** done.
 
 `RootShellCommandDetector` (`core/detection_w2.py`) couldn't tell a genuinely escalated interactive shell apart from routine root-owned session-open noise, so it risked firing "critical" on every ordinary login. Fixed with two checks, both grounded in the Aug 20 investigation's findings:
 
-- `parse_audit_line` now also captures the `tty` field. `RootShellCommandDetector` skips any event with `tty=(none)` — a command with no controlling terminal can't be something an attacker typed into an escalated interactive shell (that always has a real tty attached). This is what silently absorbs the whole MOTD `run-parts` chain (`env` → `run-parts` → numbered scripts → whatever they shell out to, e.g. `uname`) without having to hardcode script names that vary by distro.
-- Added `BENIGN_ROOT_HELPERS = {'unix_chkpwd'}` — helpers sudo/PAM invoke internally as part of its own auth flow (not something the actor typed) get skipped by name, since they can carry a real tty (inherited from the sudo invocation) and still aren't evidence of anything done inside a shell.
+- `parse_audit_line` now also captures the `tty` field. `RootShellCommandDetector` skips any event with `tty=(none)` - a command with no controlling terminal can't be something an attacker typed into an escalated interactive shell (that always has a real tty attached). This is what silently absorbs the whole MOTD `run-parts` chain (`env` → `run-parts` → numbered scripts → whatever they shell out to, e.g. `uname`) without having to hardcode script names that vary by distro.
+- Added `BENIGN_ROOT_HELPERS = {'unix_chkpwd'}` - helpers sudo/PAM invoke internally as part of its own auth flow (not something the actor typed) get skipped by name, since they can carry a real tty (inherited from the sudo invocation) and still aren't evidence of anything done inside a shell.
 
-Real escalated-shell activity (`bash`, `sh`, arbitrary commands with a real `tty=ptsN`) still fires as before — verified with new tests in `tests/test_detection_w2.py` covering `parse_audit_line`'s `tty` extraction and both suppression paths alongside a still-flagged interactive case, a trusted-actor skip, and dedup. Full suite: 59 passed.
+Real escalated-shell activity (`bash`, `sh`, arbitrary commands with a real `tty=ptsN`) still fires as before - verified with new tests in `tests/test_detection_w2.py` covering `parse_audit_line`'s `tty` extraction and both suppression paths alongside a still-flagged interactive case, a trusted-actor skip, and dedup. Full suite: 59 passed.
 
 ---
 
-## 2026-09-13 — strategic assessment: a client wants "monitor every activity on a system"
+## 2026-09-13 - strategic assessment: a client wants "monitor every activity on a system"
 
-**Status:** decision pending — this is a positioning question, not a coded feature yet.
+**Status:** decision pending - this is a positioning question, not a coded feature yet.
 
 **Trigger:** A potential client asked whether SentinelLog could monitor "every activity on a system," and Ibrahim asked for a blunt, research-backed read on whether that's a good direction or whether the project is a dead end.
 
-**Research-backed conclusion:** "Monitor everything" is a full-EDR ask (all process execution, network connections, broad file-integrity monitoring), not a config tweak — it needs new parsers/detectors, a storage rework (SQLite + in-memory queues don't hold up once you stop filtering auditd; full auditing runs gigabytes/day and hundreds of events/sec vs. ~10-50MB/day for the narrow rules SentinelLog runs today), and RBAC/multi-tenancy if it's ever going to serve more than one client from one dashboard (`SYSTEM_OVERVIEW.md` §12). More importantly: **Wazuh** (free, open-source, GPLv2/Apache 2.0, no feature gating) already does exactly this — host IDS, log analysis, file integrity monitoring, vulnerability detection, compliance mapping — and is specifically recommended for 1-5 person teams on a tight budget. Racing Wazuh on breadth of telemetry is a fight a solo project loses; Splunk pricing was never the real competitor for this ask, Wazuh's $0 price tag is.
+**Research-backed conclusion:** "Monitor everything" is a full-EDR ask (all process execution, network connections, broad file-integrity monitoring), not a config tweak - it needs new parsers/detectors, a storage rework (SQLite + in-memory queues don't hold up once you stop filtering auditd; full auditing runs gigabytes/day and hundreds of events/sec vs. ~10-50MB/day for the narrow rules SentinelLog runs today), and RBAC/multi-tenancy if it's ever going to serve more than one client from one dashboard (`SYSTEM_OVERVIEW.md` §12). More importantly: **Wazuh** (free, open-source, GPLv2/Apache 2.0, no feature gating) already does exactly this - host IDS, log analysis, file integrity monitoring, vulnerability detection, compliance mapping - and is specifically recommended for 1-5 person teams on a tight budget. Racing Wazuh on breadth of telemetry is a fight a solo project loses; Splunk pricing was never the real competitor for this ask, Wazuh's $0 price tag is.
 
 **Where SentinelLog is NOT useless:** narrow-scope (SSH/sudo/web) log watching with genuine per-identity behavioral baselining, AI plain-language triage aimed at non-technical readers, and dead-simple self-hosting (no Elasticsearch/OpenSearch cluster, unlike Wazuh's biggest deployment complaint) are real, current strengths a generic tool doesn't emphasize as cleanly.
 
-**Agreed direction: don't out-breadth Wazuh — compete on usability for people who aren't a SOC.** Positioning: "the SIEM for someone with 1-2 boxes and no security team," not "monitor literally everything for an enterprise." Enhancement roadmap discussed, in priority order:
+**Agreed direction: don't out-breadth Wazuh - compete on usability for people who aren't a SOC.** Positioning: "the SIEM for someone with 1-2 boxes and no security team," not "monitor literally everything for an enterprise." Enhancement roadmap discussed, in priority order:
 
-1. **RBAC / multi-tenancy** — still the hard blocker to selling this to more than one client from one dashboard; needed before "manage this for several clients" is even possible.
-2. **Make AI triage the default lens, not a per-alert afterthought** — a daily/weekly plain-English digest ("here's what happened on your server this week") pushed via the existing Telegram/Email channels. This is the sharpest current differentiator (Wazuh doesn't have this baked in) and the most visible thing to demo to a non-technical client.
-3. **Mobile-first alerting** — WhatsApp/SMS (already flagged as a gap in `SYSTEM_OVERVIEW.md` §12), since the target market (small business, not enterprise SOC) leans mobile over Slack/PagerDuty-style channels Wazuh defaults to.
-4. **Incremental telemetry widening, cheaply** — not a raw auditd firehose. Reuse the existing behavioral-baseline pattern (`core/behavior.py`) for a small number of high-signal additions: basic network-connection anomaly detection (new remote IP a service has never talked to) and file-integrity hashing for an explicit small set of critical files, rather than watching the whole filesystem.
-5. **Simple exportable activity report** (CSV/PDF, "here's what we watched, here's what happened this month") — lighter-weight than real NDPR/POPIA compliance mapping, but gives a non-technical client something tangible to show.
-6. **Consider the business model, not just the code** — packaging this as a managed "we watch it for you" service (Ibrahim running it on the client's behalf) sidesteps needing to out-build Wazuh feature-for-feature, since the client is asking a person, not evaluating software.
+1. **RBAC / multi-tenancy** - still the hard blocker to selling this to more than one client from one dashboard; needed before "manage this for several clients" is even possible.
+2. **Make AI triage the default lens, not a per-alert afterthought** - a daily/weekly plain-English digest ("here's what happened on your server this week") pushed via the existing Telegram/Email channels. This is the sharpest current differentiator (Wazuh doesn't have this baked in) and the most visible thing to demo to a non-technical client.
+3. **Mobile-first alerting** - WhatsApp/SMS (already flagged as a gap in `SYSTEM_OVERVIEW.md` §12), since the target market (small business, not enterprise SOC) leans mobile over Slack/PagerDuty-style channels Wazuh defaults to.
+4. **Incremental telemetry widening, cheaply** - not a raw auditd firehose. Reuse the existing behavioral-baseline pattern (`core/behavior.py`) for a small number of high-signal additions: basic network-connection anomaly detection (new remote IP a service has never talked to) and file-integrity hashing for an explicit small set of critical files, rather than watching the whole filesystem.
+5. **Simple exportable activity report** (CSV/PDF, "here's what we watched, here's what happened this month") - lighter-weight than real NDPR/POPIA compliance mapping, but gives a non-technical client something tangible to show.
+6. **Consider the business model, not just the code** - packaging this as a managed "we watch it for you" service (Ibrahim running it on the client's behalf) sidesteps needing to out-build Wazuh feature-for-feature, since the client is asking a person, not evaluating software.
 
-**Decision (2026-09-13): starting with #1, RBAC / multi-tenancy.** It's the unlock for everything else in this list — no other item matters for "serve more than one client" until one admin login stops being the entire access model. Work begins below.
+**Decision (2026-09-13): starting with #1, RBAC / multi-tenancy.** It's the unlock for everything else in this list - no other item matters for "serve more than one client" until one admin login stops being the entire access model. Work begins below.
 
 ---
 
-## 2026-09-13 — RBAC / multi-tenancy (first slice shipped)
+## 2026-09-13 - RBAC / multi-tenancy (first slice shipped)
 
-**Status:** done for this slice — core scoping is real and tested; a few follow-ups remain (listed below).
+**Status:** done for this slice - core scoping is real and tested; a few follow-ups remain (listed below).
 
 **Goal:** move SentinelLog from a single hardcoded `AdminUser` to a model that supports multiple accounts, each scoped to the clients/monitor sessions they should see, so one dashboard can eventually serve more than one client without one admin seeing everyone else's alerts.
 
 **What shipped:**
-- New `Client` model (`models.py`) — one row per tenant. `AdminUser` gained `role` ('owner' or 'member') and `client_id`. The very first admin account (created from `.env` on first run) stays `role='owner', client_id=None`, which preserves the original single-admin behavior exactly — an owner still sees every client's data, nothing changes for the existing login. `MonitorSession` gained `client_id` too. Existing databases get these columns bolted on by hand in `init_db()`, following the same pattern already used for `agent_key`.
-- Scoping helpers in `app.py` (`_scope_sessions_query`, `_scope_alerts_query`, `_scope_blocks_query`, `_visible_session`) — a member only ever sees rows tied to their own `client_id`; an owner is unfiltered. Applied across the dashboard's live-session nav tab, `/alerts`, `/alerts/<id>`, `/blocks`, `/monitor/<id>`, and every `/api/monitor/<id>/...`, `/api/sessions`, `/api/alerts`, `/api/blocks` endpoint. A member hitting another client's session id gets the same 404 as a nonexistent one — never a 403 that would confirm someone else's id is real.
-- **Found and fixed a real bug while testing this**: `/api/monitor/stop/<session_id>` had no ownership check at all before this — any logged-in account could stop *any* session by guessing its id. Now gated the same way as the rest.
-- `_start_monitor_session` now stamps `client_id` — a member's new/resumed sessions are silently forced onto their own client no matter what they send in the request; only an owner can pick a client (via a new dropdown on the New Monitor form, only shown to owners with at least one client to choose from).
-- Minimal owner-only admin UI at `/admin/clients` (`templates/clients.html`, nav link gated on `current_user.is_owner`) — create a client, then create a login for it. That's the only way client accounts get created right now.
-- `tests/test_rbac.py` — 9 new tests using Flask's test client (a first for this codebase; every prior test exercised `core/` modules directly). Covers: member sees only their own sessions, owner sees everything, member 404s on another client's monitor page, member can't stop another client's session, member can't reach `/admin/clients` or the client-creation APIs, owner can create a client + scoped member, and a member can't smuggle a session onto another client's `client_id`. Full suite: 67 passed.
-- **Test-isolation bug found and fixed along the way**: Flask-SQLAlchemy binds its engine to whatever `SQLALCHEMY_DATABASE_URI` is set to the first time the DB is touched, and `app.py` set that at import time from a hardcoded path — so the first version of these tests silently wrote straight into the real `sentinellog.db` (had to manually delete the leaked `acme_user`/`globex_user`/test `Client`/`sess1`/`sess2` rows it left behind). Fixed by making the URI overridable via a `DATABASE_URL` env var, set before `app` is imported in the test file, so tests can never touch the real database again.
+- New `Client` model (`models.py`) - one row per tenant. `AdminUser` gained `role` ('owner' or 'member') and `client_id`. The very first admin account (created from `.env` on first run) stays `role='owner', client_id=None`, which preserves the original single-admin behavior exactly - an owner still sees every client's data, nothing changes for the existing login. `MonitorSession` gained `client_id` too. Existing databases get these columns bolted on by hand in `init_db()`, following the same pattern already used for `agent_key`.
+- Scoping helpers in `app.py` (`_scope_sessions_query`, `_scope_alerts_query`, `_scope_blocks_query`, `_visible_session`) - a member only ever sees rows tied to their own `client_id`; an owner is unfiltered. Applied across the dashboard's live-session nav tab, `/alerts`, `/alerts/<id>`, `/blocks`, `/monitor/<id>`, and every `/api/monitor/<id>/...`, `/api/sessions`, `/api/alerts`, `/api/blocks` endpoint. A member hitting another client's session id gets the same 404 as a nonexistent one - never a 403 that would confirm someone else's id is real.
+- **Found and fixed a real bug while testing this**: `/api/monitor/stop/<session_id>` had no ownership check at all before this - any logged-in account could stop *any* session by guessing its id. Now gated the same way as the rest.
+- `_start_monitor_session` now stamps `client_id` - a member's new/resumed sessions are silently forced onto their own client no matter what they send in the request; only an owner can pick a client (via a new dropdown on the New Monitor form, only shown to owners with at least one client to choose from).
+- Minimal owner-only admin UI at `/admin/clients` (`templates/clients.html`, nav link gated on `current_user.is_owner`) - create a client, then create a login for it. That's the only way client accounts get created right now.
+- `tests/test_rbac.py` - 9 new tests using Flask's test client (a first for this codebase; every prior test exercised `core/` modules directly). Covers: member sees only their own sessions, owner sees everything, member 404s on another client's monitor page, member can't stop another client's session, member can't reach `/admin/clients` or the client-creation APIs, owner can create a client + scoped member, and a member can't smuggle a session onto another client's `client_id`. Full suite: 67 passed.
+- **Test-isolation bug found and fixed along the way**: Flask-SQLAlchemy binds its engine to whatever `SQLALCHEMY_DATABASE_URI` is set to the first time the DB is touched, and `app.py` set that at import time from a hardcoded path - so the first version of these tests silently wrote straight into the real `sentinellog.db` (had to manually delete the leaked `acme_user`/`globex_user`/test `Client`/`sess1`/`sess2` rows it left behind). Fixed by making the URI overridable via a `DATABASE_URL` env var, set before `app` is imported in the test file, so tests can never touch the real database again.
 
 **Known follow-ups, not done in this slice:**
-- `UserScope` (the Scopes page) is still keyed globally by OS username, not per-client — two different clients' boxes that happen to both have a "user1" account would share one scope config. Needs a composite key (`client_id` + `username`) to be truly multi-tenant.
-- No edit/delete yet for clients or member accounts — creation only.
-- No "which client am I" indicator in the UI for a member account — functionally scoped correctly, just not labeled on screen yet.
-- `/api/ingest/<session_id>` (remote agent push) deliberately left untouched — it authenticates via its own per-session `agent_key`, not a logged-in user, so tenant scoping doesn't apply there.
+- `UserScope` (the Scopes page) is still keyed globally by OS username, not per-client - two different clients' boxes that happen to both have a "user1" account would share one scope config. Needs a composite key (`client_id` + `username`) to be truly multi-tenant.
+- No edit/delete yet for clients or member accounts - creation only.
+- No "which client am I" indicator in the UI for a member account - functionally scoped correctly, just not labeled on screen yet.
+- `/api/ingest/<session_id>` (remote agent push) deliberately left untouched - it authenticates via its own per-session `agent_key`, not a logged-in user, so tenant scoping doesn't apply there.

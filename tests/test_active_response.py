@@ -1,4 +1,4 @@
-"""Tests for core/active_response.py — whitelist, block duration escalation,
+"""Tests for core/active_response.py - whitelist, block duration escalation,
 and iptables fail-safe behavior (mocked, since this dev machine isn't Linux
 and can't actually run iptables)."""
 import core.active_response as ar

@@ -18,7 +18,7 @@ for _ in range(4):
     ip = random.choice(["102.89.23.11", "197.210.54.19"])
     events.append((line(now, ip, "GET", random.choice(normal_paths), 200, random.randint(800, 5000)), 0.5))
 
-# ── Phase 2: the scan — a bot hammering common admin/config paths,
+# ── Phase 2: the scan - a bot hammering common admin/config paths,
 #    22 requests from one IP, fast, well inside the 60-second window
 #    the 404_flood rule checks (threshold is 20).
 scanner_ip = "45.155.205.90"
@@ -32,7 +32,7 @@ scan_paths = [
 for path in scan_paths:
     events.append((line(now, scanner_ip, "GET", path, 404, random.randint(150, 400)), 0.15))
 
-# ── Phase 3: the traversal attempt — same or a different attacker,
+# ── Phase 3: the traversal attempt - same or a different attacker,
 #    trying to walk out of the web root. Fires immediately, no threshold.
 events.append((line(now, scanner_ip, "GET", "/../../../../etc/passwd", 403, 0), 0.4))
 events.append((line(now, "185.220.101.45", "GET", "/download?file=..%2f..%2f..%2fetc%2fshadow", 403, 0), 0.4))

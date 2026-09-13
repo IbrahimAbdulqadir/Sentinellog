@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% block title %}Monitor {{ session_id }} — SentinelLog{% endblock %}
+{% block title %}Monitor {{ session_id }} - SentinelLog{% endblock %}
 {% block topbar_actions %}
 <button class="btn btn-danger btn-sm" id="stopBtn" onclick="stopMonitor()" style="display:none">
   <i class="ti ti-player-stop" aria-hidden="true"></i><span>Stop</span>
@@ -28,10 +28,10 @@
     <span class="card-title" style="color:var(--cyan-text)">Remote agent setup</span>
     <span class="pill pill-amber" id="agentWaitingPill">waiting for agent</span>
   </div>
-  <div class="text-sm text-muted mb-12">Run this on the remote server to start forwarding <span class="mono" id="agentFilePath"></span> here. It needs nothing but <span class="mono">python3</span> — no install step.</div>
+  <div class="text-sm text-muted mb-12">Run this on the remote server to start forwarding <span class="mono" id="agentFilePath"></span> here. It needs nothing but <span class="mono">python3</span> - no install step.</div>
   <div style="background:var(--terminal-well);border-radius:10px;padding:12px 14px;font-family:var(--mono);font-size:12px;color:var(--text-secondary);overflow-x:auto;white-space:pre" id="agentCommand"></div>
   <button class="btn btn-ghost btn-sm mt-12" onclick="copyAgentCommand()"><i class="ti ti-copy" aria-hidden="true"></i> Copy command</button>
-  <div class="form-hint mt-8">The agent key above only appears here — if you lose it, resume this monitor to generate a new one.</div>
+  <div class="form-hint mt-8">The agent key above only appears here - if you lose it, resume this monitor to generate a new one.</div>
 </div>
 
 <div class="metrics mb-16">
@@ -113,7 +113,7 @@ function addLog(cls, text, atTime) {
 }
 
 // Renders one log_event into the terminal. `live` controls whether it also bumps the
-// running counters — replayed history is already reflected in the stats loaded from
+// running counters - replayed history is already reflected in the stats loaded from
 // /status, so counting it again would inflate the numbers.
 function renderLogEvent(d, live) {
   if (live) {
@@ -138,11 +138,11 @@ function renderLogEvent(d, live) {
   } else if (d.event_type === 'su_success') {
     addLog('t-alert', `SU    ${d.username || '?'} switched account`, at);
   } else if (d.event_type === 'su_failure') {
-    addLog('t-fail', `SU    ${d.username || '?'} denied — account switch attempt`, at);
+    addLog('t-fail', `SU    ${d.username || '?'} denied - account switch attempt`, at);
   } else if (d.event_type === 'audit_cmd') {
-    addLog('t-alert', `ROOT  ${d.username || '?'} ran a command as root — ${d.raw_line.match(/comm="([^"]*)"/)?.[1] || '?'}`, at);
+    addLog('t-alert', `ROOT  ${d.username || '?'} ran a command as root - ${d.raw_line.match(/comm="([^"]*)"/)?.[1] || '?'}`, at);
   } else if (d.event_type === 'scope_violation') {
-    addLog('t-alert', `SCOPE ${d.username || '?'} accessed outside their assigned area — ${d.raw_line.match(/name="([^"]*)"/)?.[1] || '?'}`, at);
+    addLog('t-alert', `SCOPE ${d.username || '?'} accessed outside their assigned area - ${d.raw_line.match(/name="([^"]*)"/)?.[1] || '?'}`, at);
   } else {
     addLog('t-ok', `OK    ${d.source_ip || d.username || '?'}`, at);
   }
@@ -176,13 +176,13 @@ function addAlert(alert, isHistorical) {
   panel.insertBefore(div, panel.firstChild);
 }
 
-// Load session info — real saved numbers first, live connection only if it's actually still running
+// Load session info - real saved numbers first, live connection only if it's actually still running
 fetch('/api/monitor/{{ session_id }}/status')
   .then(r => r.json())
   .then(async d => {
     if (d.target_name) {
       document.getElementById('monitorTitle').innerHTML =
-        `Monitor — <span style="color:var(--accent)">${d.target_name}</span>`;
+        `Monitor - <span style="color:var(--accent)">${d.target_name}</span>`;
     }
     if (d.filepath) {
       const modeLabels = {tail: '● Tailing (live)', agent: '⇢ Remote agent', replay: '▶ Replaying'};
@@ -201,7 +201,7 @@ fetch('/api/monitor/{{ session_id }}/status')
       document.getElementById('agentSetup').style.display = 'block';
     }
 
-    // Real saved stats, not zeros — this is the actual fix for "doesn't remember previous session"
+    // Real saved stats, not zeros - this is the actual fix for "doesn't remember previous session"
     if (d.stats) {
       lineCount = d.stats.lines_processed || 0;
       failureCount = d.stats.auth_failures || 0;
@@ -218,7 +218,7 @@ fetch('/api/monitor/{{ session_id }}/status')
     } catch (e) { console.warn('Could not load historical alerts', e); }
 
     if (d.live_available) {
-      // Recent raw feed lines still held in memory for this session — replaying these is
+      // Recent raw feed lines still held in memory for this session - replaying these is
       // what stops the live feed panel from looking like it restarted after navigating
       // away (e.g. to an alert) and back.
       try {
@@ -227,8 +227,8 @@ fetch('/api/monitor/{{ session_id }}/status')
       } catch (e) { console.warn('Could not load recent feed history', e); }
       connectLive();
     } else {
-      // Not currently live in this process — show what's saved, offer to resume instead of spinning forever
-      document.getElementById('monitorSub').textContent = 'Session not currently live — showing saved data';
+      // Not currently live in this process - show what's saved, offer to resume instead of spinning forever
+      document.getElementById('monitorSub').textContent = 'Session not currently live - showing saved data';
       document.getElementById('feedPill').textContent = '● historical';
       document.getElementById('feedPill').className = 'pill pill-gray';
       terminal.innerHTML = '<div class="t-line"><span class="t-dim">Live log feed is only available while a session is actively running. Alerts and stats above are the real saved history for this session.</span></div>';
@@ -248,7 +248,7 @@ function connectLive() {
   evtSource.onopen = () => {
     document.getElementById('feedPill').textContent = '● streaming';
     document.getElementById('feedPill').className = 'pill pill-green';
-    document.getElementById('monitorSub').textContent = 'Stream connected — processing log file';
+    document.getElementById('monitorSub').textContent = 'Stream connected - processing log file';
     console.log('SSE open');
   };
 
@@ -257,7 +257,7 @@ function connectLive() {
   evtSource.addEventListener('alert', e => {
     const a = JSON.parse(e.data);
     addAlert(a, false);
-    addLog('t-alert', `⚠ ALERT — ${a.title}`);
+    addLog('t-alert', `⚠ ALERT - ${a.title}`);
   });
 
   evtSource.addEventListener('complete', () => {

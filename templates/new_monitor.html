@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% block title %}New Monitor — SentinelLog{% endblock %}
+{% block title %}New Monitor - SentinelLog{% endblock %}
 
 {% block content %}
 <div class="page-head">
@@ -27,12 +27,12 @@
       <div class="form-group">
         <label class="form-label">Client <span style="font-size:11px;color:var(--text-muted);font-weight:400">(optional)</span></label>
         <select class="input" id="clientId">
-          <option value="">— Unassigned —</option>
+          <option value="">(Unassigned)</option>
           {% for c in clients %}
           <option value="{{ c.id }}">{{ c.name }}</option>
           {% endfor %}
         </select>
-        <div class="form-hint">Which client this monitor belongs to — their accounts will only see sessions assigned to them</div>
+        <div class="form-hint">Which client this monitor belongs to - their accounts will only see sessions assigned to them</div>
       </div>
       {% endif %}
 
@@ -63,7 +63,7 @@
         <span class="card-title">Log sources</span>
         <span class="pill pill-gray" id="sourceHint">auto-detected per line</span>
       </div>
-      <div class="form-hint mb-12">Point at one or more log files — SentinelLog figures out what each line is (SSH/auth, sudo, or web) and runs every matching rule. No need to pick a category.</div>
+      <div class="form-hint mb-12">Point at one or more log files - SentinelLog figures out what each line is (SSH/auth, sudo, or web) and runs every matching rule. No need to pick a category.</div>
       <div id="sourcesList"></div>
       <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px">
         <button type="button" class="btn btn-ghost btn-sm" onclick="addSource('')"><i class="ti ti-plus" aria-hidden="true"></i> Add source</button>
@@ -74,7 +74,7 @@
     </div>
 
     <div class="card">
-      <div class="card-head"><span class="card-title">Detection rules</span><span class="pill pill-blue">8 active — always on</span></div>
+      <div class="card-head"><span class="card-title">Detection rules</span><span class="pill pill-blue">8 active - always on</span></div>
       <div id="rulesList">
         <div class="alert-item">
           <div class="alert-icon crit"><i class="ti ti-alert-triangle" aria-hidden="true"></i></div>
@@ -127,7 +127,7 @@
         <div style="display:flex;flex-direction:column;gap:12px">
           <div class="flex-between">
             <span class="text-sm text-muted">Name</span>
-            <span class="text-sm" id="summaryName">—</span>
+            <span class="text-sm" id="summaryName">-</span>
           </div>
           <div class="flex-between">
             <span class="text-sm text-muted">Mode</span>
@@ -278,7 +278,7 @@ function selectMode(mode) {
     addSource(presetPaths.replay.auth);
     addSource(presetPaths.replay.nginx);
     addSource(presetPaths.replay.sudo);
-    document.getElementById('sourceHint').textContent = 'bundled sample — all 3 sources loaded';
+    document.getElementById('sourceHint').textContent = 'bundled sample - all 3 sources loaded';
   } else if (mode === 'agent') {
     addSource(presetPaths.agent.auth);
     document.getElementById('sourceHint').textContent = 'path the agent will tail remotely';
@@ -291,7 +291,7 @@ function selectMode(mode) {
 selectMode('replay'); // populate the default sources list on page load
 
 document.getElementById('targetName').addEventListener('input', e => {
-  document.getElementById('summaryName').textContent = e.target.value || '—';
+  document.getElementById('summaryName').textContent = e.target.value || '-';
 });
 
 async function testTelegram() {
@@ -311,7 +311,7 @@ async function testTelegram() {
   const d = await res.json();
   statusEl.style.background = d.ok ? 'var(--green-bg)' : 'var(--red-bg)';
   statusEl.style.color = d.ok ? 'var(--green-text)' : 'var(--red-text)';
-  statusEl.textContent = d.ok ? '✓ Sent — check Telegram' : '✗ Failed: ' + (d.error || 'Check bot token and chat ID');
+  statusEl.textContent = d.ok ? '✓ Sent - check Telegram' : '✗ Failed: ' + (d.error || 'Check bot token and chat ID');
 }
 
 function toggleEmailProvider() {
@@ -340,7 +340,7 @@ async function testEmail() {
   const d = await res.json();
   statusEl.style.background = d.ok ? 'var(--green-bg)' : 'var(--red-bg)';
   statusEl.style.color = d.ok ? 'var(--green-text)' : 'var(--red-text)';
-  statusEl.textContent = d.ok ? '✓ Email sent — check your inbox' : '✗ Failed: ' + (d.error || 'Check credentials');
+  statusEl.textContent = d.ok ? '✓ Email sent - check your inbox' : '✗ Failed: ' + (d.error || 'Check credentials');
 }
 
 async function startMonitor() {
@@ -379,7 +379,7 @@ async function startMonitor() {
       errEl.style.display = 'block';
     }
   } catch(e) {
-    errEl.textContent = 'Network error — is Flask running?';
+    errEl.textContent = 'Network error - is Flask running?';
     errEl.style.display = 'block';
   }
 }
